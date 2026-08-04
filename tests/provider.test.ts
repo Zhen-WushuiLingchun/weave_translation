@@ -34,6 +34,39 @@ describe('provider client', () => {
     expect(headers.Authorization).toBe('Bearer fake-key');
   });
 
+  it('sends LaTeX metadata for comprehension and enforces exact math placeholders', async () => {
+    const token = '⟦WEAVE_MATH_A1B2C3D4_0⟧';
+    const mathTask: TranslationTask = {
+      ...task,
+      units: [{
+        id: 'a',
+        text: `Energy follows ${token}.`,
+        math: [{ token, latex: 'E=mc^2', display: false, fallback: 'E=mc²' }],
+        contextMath: [{ latex: '\\int T_{\\mu\\nu}dV', display: true, fallback: 'integral T dV' }],
+      }],
+    };
+    const fetcher = vi.fn<typeof fetch>(async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as { messages: Array<{ role: string; content: string }> };
+      expect(body.messages[0]?.content).toContain('Read both LaTeX fields');
+      expect(body.messages[0]?.content).toContain('exactly once');
+      expect(body.messages[1]?.content).toContain('E=mc^2');
+      const userPayload = JSON.parse(body.messages[1]?.content ?? '{}') as TranslationTask;
+      expect(userPayload.units[0]?.contextMath?.[0]?.latex).toBe('\\int T_{\\mu\\nu}dV');
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: JSON.stringify({ items: [{ id: 'a', text: `能量满足 ${token}。` }] }) } }],
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+    const result = await callProvider(profile, 'fake-key', mathTask, fetcher);
+    expect(result.items[0]).toEqual({ id: 'a', text: `能量满足 ${token}。` });
+
+    const brokenFetcher = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify({ items: [{ id: 'a', text: '能量满足该关系。' }] }) } }],
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    const broken = await callProvider(profile, 'fake-key', mathTask, brokenFetcher);
+    expect(broken.items[0]?.error).toContain('遗漏');
+    expect(broken.items[0]?.text).toBe('');
+  });
+
   it('maps the unified thinking control to DeepSeek and OpenAI-compatible parameters', () => {
     expect(reasoningParameters({ ...profile, kind: 'deepseek', reasoningMode: 'fast' })).toEqual({ thinking: { type: 'disabled' } });
     expect(reasoningParameters({ ...profile, kind: 'deepseek', reasoningMode: 'balanced' })).toEqual({ thinking: { type: 'enabled' }, reasoning_effort: 'high' });

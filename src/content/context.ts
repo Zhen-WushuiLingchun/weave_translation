@@ -1,4 +1,5 @@
 import type { ContextBlock, ContextBrief, ContextSnapshot, TranslationUnit } from '../lib/contracts';
+import { extractDisplayMath, extractStructuredText } from './math-content';
 
 const BLOCK_SELECTOR = 'h1,h2,h3,h4,h5,h6,p,li,blockquote,figcaption,td,th,dd,dt';
 const EXCLUDED_SELECTOR = [
@@ -33,10 +34,6 @@ export function hashText(value: string): string {
   return (hash >>> 0).toString(16).padStart(8, '0');
 }
 
-function normalizedText(element: HTMLElement): string {
-  return element.innerText.replace(/\s+/g, ' ').trim();
-}
-
 function isVisible(element: HTMLElement): boolean {
   const style = getComputedStyle(element);
   if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
@@ -44,9 +41,9 @@ function isVisible(element: HTMLElement): boolean {
   return rect.width > 0 && rect.height > 0;
 }
 
-function shouldInclude(element: HTMLElement): boolean {
+function shouldInclude(element: HTMLElement, text: string, mathOnly: boolean): boolean {
   if (element.closest(EXCLUDED_SELECTOR)) return false;
-  const text = normalizedText(element);
+  if (mathOnly) return false;
   if (text.length < 2 || text.length > 4_000) return false;
   if (element.querySelector(BLOCK_SELECTOR) && !/^H[1-6]$/.test(element.tagName)) return false;
   return isVisible(element);
@@ -59,8 +56,9 @@ export function extractPage(root: ParentNode = document): ExtractedPage {
   const headings: Array<{ level: number; text: string }> = [];
 
   for (const element of nodes) {
-    if (!shouldInclude(element)) continue;
-    const text = normalizedText(element);
+    const structured = extractStructuredText(element);
+    if (!shouldInclude(element, structured.text, structured.mathOnly)) continue;
+    const text = structured.text;
     const headingMatch = element.tagName.match(/^H([1-6])$/);
     if (headingMatch) {
       const level = Number(headingMatch[1]);
@@ -75,13 +73,39 @@ export function extractPage(root: ParentNode = document): ExtractedPage {
       tag: element.tagName.toLowerCase(),
       headingPath: headings.map((heading) => heading.text),
       index,
+      ...(structured.math.length ? { math: structured.math } : {}),
     };
     blocks.push(block);
     elements.set(id, element);
     if (blocks.length >= 800) break;
   }
 
-  const signature = `${location.href}|${document.title}|${blocks.map((block) => block.text).join('\n').slice(0, 80_000)}`;
+  const orderedElements = blocks.map((block) => elements.get(block.id)!);
+  const attachContextMath = (index: number, math: NonNullable<ContextBlock['contextMath']>[number]) => {
+    if (index < 0) return;
+    const block = blocks[index];
+    if (!block) return;
+    block.contextMath ??= [];
+    if (!block.contextMath.some((candidate) => candidate.latex === math.latex && candidate.fallback === math.fallback)) {
+      block.contextMath.push(math);
+    }
+  };
+  for (const entry of extractDisplayMath(root)) {
+    let previous = -1;
+    let next = -1;
+    for (let index = 0; index < orderedElements.length; index += 1) {
+      const position = orderedElements[index]!.compareDocumentPosition(entry.element);
+      if (position & Node.DOCUMENT_POSITION_FOLLOWING) previous = index;
+      if (position & Node.DOCUMENT_POSITION_PRECEDING) {
+        next = index;
+        break;
+      }
+    }
+    attachContextMath(previous, entry.math);
+    if (next !== previous) attachContextMath(next, entry.math);
+  }
+
+  const signature = `${location.href}|${document.title}|${blocks.map((block) => contextText(block)).join('\n').slice(0, 80_000)}`;
   return {
     snapshot: {
       url: location.href,
@@ -99,7 +123,7 @@ export function contextSample(snapshot: ContextSnapshot, maxCharacters = 10_000)
   let count = 0;
   for (const block of snapshot.blocks) {
     if (count + block.text.length > maxCharacters) break;
-    parts.push(`${block.headingPath.join(' > ')}\n${block.text}`.trim());
+    parts.push(`${block.headingPath.join(' > ')}\n${contextText(block)}`.trim());
     count += block.text.length;
   }
   return { id: `summary-${snapshot.contentHash}`, text: `Title: ${snapshot.title}\n\n${parts.join('\n\n')}` };
@@ -107,12 +131,16 @@ export function contextSample(snapshot: ContextSnapshot, maxCharacters = 10_000)
 
 export function buildTranslationUnits(blocks: ContextBlock[]): TranslationUnit[] {
   return blocks.map((block, index) => {
-    const before = blocks[index - 1]?.text;
-    const after = blocks[index + 1]?.text;
+    const beforeBlock = blocks[index - 1];
+    const afterBlock = blocks[index + 1];
+    const before = beforeBlock ? contextText(beforeBlock) : undefined;
+    const after = afterBlock ? contextText(afterBlock) : undefined;
     return {
       id: block.id,
       text: block.text,
       headingPath: block.headingPath,
+      ...(block.math?.length ? { math: block.math } : {}),
+      ...(block.contextMath?.length ? { contextMath: block.contextMath } : {}),
       ...(before ? { before } : {}),
       ...(after ? { after } : {}),
     };
@@ -136,18 +164,37 @@ export function parseContextBrief(raw: string): ContextBrief {
 }
 
 export function containingContext(selection: Selection, snapshot: ContextSnapshot): TranslationUnit | undefined {
-  const text = selection.toString().replace(/\s+/g, ' ').trim();
+  const selected = document.createElement('div');
+  if (selection.rangeCount) selected.append(selection.getRangeAt(0).cloneContents());
+  const structured = extractStructuredText(selected);
+  const text = structured.text || selection.toString().replace(/\s+/g, ' ').trim();
   if (!text || text.length > 5_000) return undefined;
   const node = selection.anchorNode instanceof Element ? selection.anchorNode : selection.anchorNode?.parentElement;
   const container = node?.closest<HTMLElement>(BLOCK_SELECTOR);
-  const block = snapshot.blocks.find((candidate) => container?.innerText.replace(/\s+/g, ' ').trim() === candidate.text);
-  const before = block ? snapshot.blocks[block.index - 1]?.text : container?.innerText;
-  const after = block ? snapshot.blocks[block.index + 1]?.text : undefined;
+  const containerText = container ? extractStructuredText(container).text : undefined;
+  const block = snapshot.blocks.find((candidate) => containerText === candidate.text);
+  const beforeBlock = block ? snapshot.blocks[block.index - 1] : undefined;
+  const afterBlock = block ? snapshot.blocks[block.index + 1] : undefined;
+  const before = beforeBlock ? contextText(beforeBlock) : containerText;
+  const after = afterBlock ? contextText(afterBlock) : undefined;
   return {
     id: `selection-${hashText(text)}`,
     text,
     ...(block?.headingPath ? { headingPath: block.headingPath } : {}),
+    ...(structured.math.length ? { math: structured.math } : {}),
+    ...(block?.contextMath?.length ? { contextMath: block.contextMath } : {}),
     ...(before ? { before } : {}),
     ...(after ? { after } : {}),
   };
+}
+
+function contextText(block: ContextBlock): string {
+  let text = block.text;
+  for (const fragment of block.math ?? []) {
+    text = text.replace(fragment.token, fragment.latex ? `$${fragment.latex}$` : fragment.fallback);
+  }
+  if (block.contextMath?.length) {
+    text += `\nRelated display equations:\n${block.contextMath.map((fragment) => `$$${fragment.latex || fragment.fallback}$$`).join('\n')}`;
+  }
+  return text;
 }

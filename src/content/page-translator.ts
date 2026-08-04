@@ -1,5 +1,6 @@
 import type {
   ContextBrief,
+  MathFragment,
   PageMode,
   TranslationScope,
   TranslationResult,
@@ -7,6 +8,7 @@ import type {
 } from '../lib/contracts';
 import { sendRuntimeMessage } from '../lib/message';
 import { resolvePageTheme } from './page-theme';
+import { renderRestrictedMarkdown } from './rich-translation';
 import {
   buildTranslationUnits,
   contextSample,
@@ -136,6 +138,8 @@ export class PageTranslator {
       const units = buildTranslationUnits(ordered);
       const batches = batchUnits(units);
       let completed = 0;
+      let failed = 0;
+      let firstFailure = '';
       this.emit({ state: 'translating', completed, total: units.length });
 
       let cursor = 0;
@@ -155,10 +159,15 @@ export class PageTranslator {
             },
           });
           if (run !== this.activeRun) return;
+          const sourceById = new Map(batch.map((unit) => [unit.id, unit]));
           for (const item of result.items) {
-            if (!item.text || item.error) continue;
+            if (!item.text || item.error) {
+              failed += 1;
+              firstFailure ||= item.error ?? '模型返回了空译文';
+              continue;
+            }
             const element = this.extracted?.elements.get(item.id);
-            if (element) this.renderTranslation(element, item.text);
+            if (element) this.renderTranslation(element, item.text, sourceById.get(item.id)?.math);
           }
           completed += batch.length;
           this.emit({ state: 'translating', completed, total: units.length });
@@ -168,7 +177,16 @@ export class PageTranslator {
       if (run !== this.activeRun) return;
       this.setMode(this.settings.dock.pageMode);
       this.observeDynamicContent();
-      this.emit({ state: 'translated', completed: units.length, total: units.length });
+      if (failed) {
+        this.emit({
+          state: 'error',
+          completed: units.length - failed,
+          total: units.length,
+          message: `${failed} 段未写入（${firstFailure}）。原文保持不变，可点击“重试本页”。`,
+        });
+      } else {
+        this.emit({ state: 'translated', completed: units.length, total: units.length });
+      }
     } catch (error) {
       if (run !== this.activeRun) return;
       this.emit({
@@ -181,7 +199,7 @@ export class PageTranslator {
     }
   }
 
-  private renderTranslation(original: HTMLElement, text: string): void {
+  private renderTranslation(original: HTMLElement, text: string, math?: MathFragment[]): void {
     let translated = this.translations.get(original);
     if (!translated) {
       translated = document.createElement(original.tagName === 'LI' ? 'div' : 'div');
@@ -192,7 +210,7 @@ export class PageTranslator {
       this.translations.set(original, translated);
       this.processed.add(original);
     }
-    translated.textContent = text;
+    renderRestrictedMarkdown(translated, text, math);
   }
 
   private applyTranslationStyle(translated: HTMLElement): void {
@@ -208,7 +226,10 @@ export class PageTranslator {
       `box-shadow:${theme === 'dark' ? 'inset 0 0 0 1px rgba(243,235,221,.1)' : 'inset 0 0 0 1px rgba(17,24,32,.07)'}`,
       'font:inherit',
       'line-height:1.72',
-      'white-space:pre-wrap',
+      'white-space:normal',
+      'overflow-wrap:anywhere',
+      'min-width:0',
+      'max-width:100%',
     ].join(';');
   }
 

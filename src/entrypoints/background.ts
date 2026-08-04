@@ -53,7 +53,7 @@ export function cacheKey(task: RuntimeRequest & { type: 'TRANSLATE' }, profile: 
     hash ^= serialized.charCodeAt(index);
     hash = Math.imul(hash, 16777619);
   }
-  return `v2:${(hash >>> 0).toString(16)}`;
+  return `v3:${(hash >>> 0).toString(16)}`;
 }
 
 export function requestProfile(settings: WeaveSettings, task: TranslationTask, pageUrl?: string): ProviderProfile {

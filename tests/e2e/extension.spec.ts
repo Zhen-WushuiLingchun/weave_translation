@@ -6,16 +6,49 @@ import path from 'node:path';
 
 const fixture = `<!doctype html><html lang="en"><head><title>Field Notes</title><style>
 body{min-height:1800px;margin:0;background:#f5f0e8;color:#172027;font:18px/1.75 Georgia,serif}
-main{max-width:760px;margin:70px auto;padding:0 34px}h1{font-size:54px;line-height:1.05}p{margin:28px 0}
+main{max-width:760px;margin:70px auto;padding:0 34px}h1{font-size:54px;line-height:1.05}p{margin:28px 0}.ltx_equation{width:100%;margin:24px 0}.ltx_align_center{text-align:center}.ltx_eqn_eqno{text-align:right}
 </style></head><body><button id="page-control" style="position:fixed;right:70px;top:42%;padding:10px">Page control</button><main><h1>Field notes on contextual translation</h1>
 <p>A word rarely travels alone. Its heading, neighboring sentence, and the subject of the article all shape the right translation.</p>
+<p id="math-prose">The invariant relation <math alttext="E=mc^2" class="ltx_Math" display="inline"><semantics><mrow><mi>E</mi><mo>=</mo><mi>m</mi><msup><mi>c</mi><mn>2</mn></msup></mrow><annotation encoding="application/x-tex">E=mc^2</annotation></semantics></math> fixes the energy scale.</p>
+<table id="display-equation" class="ltx_equation ltx_eqn_table"><tbody><tr class="ltx_equation"><td class="ltx_eqn_cell ltx_align_center"><math alttext="d s^2=-c^2dt^2+a(t)^2dr^2" class="ltx_Math" display="block"><semantics><mrow><mi>d</mi><msup><mi>s</mi><mn>2</mn></msup></mrow><annotation encoding="application/x-tex">d s^2=-c^2dt^2+a(t)^2dr^2</annotation></semantics></math></td><td class="ltx_eqn_cell ltx_eqn_eqno"><span>(1)</span></td></tr></tbody></table>
 <h2>Working method</h2><p>Weave keeps the source intact, adds a separate translation layer, and lets the reader return to the original at any time.</p>
 </main><script>document.querySelector('#page-control').addEventListener('click',event=>event.currentTarget.dataset.clicked='true')</script></body></html>`;
 const darkFixture = `<!doctype html><html lang="en"><head><title>Night Notes</title><style>html,body{min-height:100%;background:#111820;color:#f3ebdd}body{margin:0;font:18px/1.7 Georgia,serif}main{max-width:760px;margin:70px auto}</style></head><body><main><h1>Night reading</h1><p>A dark page should receive a dark translation interface.</p></main></body></html>`;
 
+function copyDirectory(source: string, target: string): void {
+  for (const entry of fs.readdirSync(source, { withFileTypes: true })) {
+    const sourcePath = path.join(source, entry.name);
+    const targetPath = path.join(target, entry.name);
+    if (entry.isDirectory()) {
+      fs.mkdirSync(targetPath);
+      copyDirectory(sourcePath, targetPath);
+    } else if (entry.isFile()) {
+      fs.copyFileSync(sourcePath, targetPath);
+    }
+  }
+}
+
+async function removeTemporaryDirectory(directory: string, prefix: string): Promise<void> {
+  const resolved = path.resolve(directory);
+  const temporaryRoot = `${path.resolve(os.tmpdir())}${path.sep}`;
+  if (!resolved.startsWith(temporaryRoot) || !path.basename(resolved).startsWith(prefix)) return;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    try {
+      fs.rmSync(resolved, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (!['EBUSY', 'ENOTEMPTY', 'EPERM'].includes(code ?? '') || attempt === 7) return;
+      await new Promise((resolve) => setTimeout(resolve, 120 * (attempt + 1)));
+    }
+  }
+}
+
 test('loads the unpacked extension and translates a real page through a mock provider', async () => {
   test.skip(process.env.WEAVE_E2E !== '1', 'Set WEAVE_E2E=1 to run the Chrome extension smoke test.');
-  const extensionPath = path.resolve('.output/chrome-mv3');
+  const builtExtensionPath = path.resolve('.output/chrome-mv3');
+  const extensionPath = fs.mkdtempSync(path.join(os.tmpdir(), 'weave-e2e-extension-'));
+  copyDirectory(builtExtensionPath, extensionPath);
   const manifestPath = path.join(extensionPath, 'manifest.json');
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as { host_permissions?: string[]; optional_host_permissions?: string[]; content_scripts?: unknown[] };
   expect(manifest.host_permissions).toEqual(['http://*/*', 'https://*/*']);
@@ -31,6 +64,8 @@ test('loads the unpacked extension and translates a real page through a mock pro
 
   let requestCount = 0;
   const reasoningEfforts: string[] = [];
+  let sawLatexMetadata = false;
+  let sawDisplayLatexContext = false;
   const server = http.createServer((request, response) => {
     if (request.method === 'POST' && request.url === '/v1/chat/completions') {
       let raw = '';
@@ -42,8 +77,15 @@ test('loads the unpacked extension and translates a real page through a mock pro
         reasoningEfforts.push(payload.reasoning_effort ?? 'compatible');
         const task = JSON.parse(payload.messages.find((message) => message.role === 'user')?.content ?? '{}') as {
           task?: string;
-          units?: Array<{ id: string; text: string }>;
+          units?: Array<{
+            id: string;
+            text: string;
+            math?: Array<{ token: string; latex: string }>;
+            contextMath?: Array<{ latex: string }>;
+          }>;
         };
+        if (task.units?.some((unit) => unit.math?.some((math) => math.latex === 'E=mc^2'))) sawLatexMetadata = true;
+        if (task.units?.some((unit) => unit.contextMath?.some((math) => math.latex.includes('d s^2=')))) sawDisplayLatexContext = true;
         const content = task.task === 'summary'
           ? JSON.stringify({ summary: 'An article about context-aware translation.', terms: [] })
           : JSON.stringify({ items: (task.units ?? []).map((unit) => ({ id: unit.id, text: `译文：${unit.text}` })) });
@@ -68,7 +110,7 @@ test('loads the unpacked extension and translates a real page through a mock pro
     if (!address || typeof address === 'string') throw new Error('Fixture server did not start.');
 
     context = await chromium.launchPersistentContext(profileDirectory, {
-      headless: false,
+      headless: process.env.WEAVE_E2E_HEADLESS === '1',
       executablePath,
       viewport: { width: 1440, height: 900 },
       args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
@@ -168,6 +210,13 @@ test('loads the unpacked extension and translates a real page through a mock pro
     await translateButton.click();
     await expect(page.locator('[data-weave-translation]').first()).toContainText('译文：', { timeout: 15_000 });
     await expect(page.locator('[data-weave-translation]').first()).toHaveAttribute('data-weave-theme', 'light');
+    const mathTranslation = page.locator('#math-prose + [data-weave-translation]');
+    await expect(mathTranslation).toBeVisible();
+    await expect(mathTranslation.locator('[data-weave-math="inline"] math')).toHaveCount(1);
+    await expect(page.locator('#display-equation [data-weave-translation]')).toHaveCount(0);
+    expect(sawLatexMetadata).toBe(true);
+    expect(sawDisplayLatexContext).toBe(true);
+    if (visualDirectory) await page.screenshot({ path: path.join(visualDirectory, 'weave-arxiv-math.png'), fullPage: false });
     expect(requestCount).toBeGreaterThanOrEqual(2);
     expect(reasoningEfforts).toContain('high');
 
@@ -239,5 +288,7 @@ test('loads the unpacked extension and translates a real page through a mock pro
   } finally {
     if (context) await context.close();
     await new Promise<void>((resolve) => server.close(() => resolve()));
+    await removeTemporaryDirectory(profileDirectory, 'weave-e2e-');
+    await removeTemporaryDirectory(extensionPath, 'weave-e2e-extension-');
   }
 });

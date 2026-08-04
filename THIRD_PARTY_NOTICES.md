@@ -8,5 +8,6 @@
 | [yt-dual-subs](https://github.com/Gythiro/yt-dual-subs) | MIT | `981df0b16a1f575c08c2d2effeea5329fb23b567` | YouTube timedtext request-flow research only |
 | [bilibili-subtitle](https://github.com/IndieKKY/bilibili-subtitle) | MIT | `2b09b34483c98715eeed1f3d2fb60e85b87e99ac` | Public Bilibili subtitle API-flow research only |
 | [ai-translator-chrome](https://github.com/kostanian/ai-translator-chrome) | MIT | `43a13e4b31419b3d6b7ad9be3c73434803ee3ec4` | Selection translation UX research only |
+| [KaTeX](https://github.com/KaTeX/KaTeX) | MIT | npm `0.18.1` (locked in `pnpm-lock.yaml`) | Local trusted-off LaTeX parsing and MathML rendering |
 
 “沉浸式翻译”仅作为用户描述的功能体验参照。其闭源实现、会员限制、服务接口、商标、图标、文案和视觉资源均未进入本项目。

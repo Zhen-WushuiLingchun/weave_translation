@@ -3,11 +3,14 @@ import { defineConfig } from 'wxt';
 export default defineConfig({
   modules: ['@wxt-dev/module-react'],
   srcDir: 'src',
+  // Rolldown may emit Unicode non-characters from dependency regex tables
+  // (KaTeX includes U+FFFF). Chrome rejects extension scripts containing them.
+  experimental: { escapeUnicode: true },
   manifest: {
     name: '织语 Weave',
     short_name: '织语',
     description: '用自己的模型，在网页与视频中获得有上下文的自然翻译。',
-    version: '0.2.1',
+    version: '0.3.0',
     minimum_chrome_version: '114',
     permissions: ['storage', 'scripting'],
     host_permissions: ['http://*/*', 'https://*/*'],

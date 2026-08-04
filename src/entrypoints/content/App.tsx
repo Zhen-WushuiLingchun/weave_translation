@@ -14,6 +14,7 @@ import { containingContext, extractPage } from '../../content/context';
 import { clampFloatingPosition } from '../../content/floating-position';
 import { PageTranslator, type PageTranslationStatus } from '../../content/page-translator';
 import { resolvePageTheme } from '../../content/page-theme';
+import { renderRestrictedMarkdown } from '../../content/rich-translation';
 import {
   selectionDotPosition,
   shouldDismissSelectionDot,
@@ -61,6 +62,14 @@ function isWeaveInteraction(event: Event): boolean {
 
 function hasSelectionCard(state: SelectionState | undefined): boolean {
   return Boolean(state && (state.result || state.loading || state.error));
+}
+
+function RichTranslation({ className, text, math }: { className?: string; text: string; math?: TranslationUnit['math'] }): React.ReactElement {
+  const ref = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (ref.current) renderRestrictedMarkdown(ref.current, text, math);
+  }, [text, math]);
+  return <div ref={ref} className={className} />;
 }
 
 export default function App(): React.ReactElement | null {
@@ -584,14 +593,14 @@ export default function App(): React.ReactElement | null {
           <header onPointerDown={dragSelectionCard} onKeyDown={moveSelectionCardWithKeyboard} tabIndex={0} aria-label="拖动划词翻译卡片">
             <span><i aria-hidden="true">⠿</i> 上下文划词</span><button onClick={() => setSelection(undefined)} aria-label="关闭划词翻译">×</button>
           </header>
-          <blockquote>{selection.unit.text}</blockquote>
+          <blockquote><RichTranslation text={selection.unit.text} math={selection.unit.math} /></blockquote>
           {selection.loading && <div className="weave-loading-state" role="status" aria-live="polite">
             <span>{{ context: '正在理解页面语境…', translation: '正在翻译所选文本…', explanation: '正在解释翻译语境…' }[selection.loadingStage ?? 'translation']}</span>
             <div className="weave-loading" aria-hidden="true"><i /><i /><i /></div>
             <small>{settings.reasoning.selection === 'deep' ? '划词当前为深入思考，复杂内容可能需要更长时间' : `划词当前为${{ compatible: '兼容', fast: '快速', balanced: '均衡', deep: '深入' }[settings.reasoning.selection]}模式`}</small>
           </div>}
-          {selection.result && <p className="weave-selection-result">{selection.result}</p>}
-          {selection.explanation && <p className="weave-explanation">{selection.explanation}</p>}
+          {selection.result && <RichTranslation className="weave-selection-result" text={selection.result} math={selection.unit.math} />}
+          {selection.explanation && <RichTranslation className="weave-explanation" text={selection.explanation} math={selection.unit.math} />}
           {selection.error && <p className="weave-notice">{selection.error}</p>}
           <label className="weave-selection-mode"><span>划词思考</span><select value={settings.reasoning.selection} onChange={(event) => void persistSettings({ reasoning: { ...settings.reasoning, selection: event.target.value as WeaveSettings['reasoning']['selection'] } })}><option value="compatible">兼容</option><option value="fast">快速</option><option value="balanced">均衡</option><option value="deep">深入</option></select></label>
           <div className="weave-card-actions">

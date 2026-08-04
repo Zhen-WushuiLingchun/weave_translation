@@ -18,12 +18,23 @@ export interface ProviderProfile {
   hasApiKey: boolean;
 }
 
+export interface MathFragment {
+  token: string;
+  latex: string;
+  display: boolean;
+  fallback: string;
+}
+
+export type MathContext = Omit<MathFragment, 'token'>;
+
 export interface ContextBlock {
   id: string;
   text: string;
   tag: string;
   headingPath: string[];
   index: number;
+  math?: MathFragment[];
+  contextMath?: MathContext[];
 }
 
 export interface ContextSnapshot {
@@ -45,6 +56,8 @@ export interface TranslationUnit {
   headingPath?: string[];
   before?: string;
   after?: string;
+  math?: MathFragment[];
+  contextMath?: MathContext[];
 }
 
 export interface TranslationTask {

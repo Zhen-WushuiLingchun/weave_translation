@@ -5,6 +5,7 @@ import type {
   TranslationResult,
   TranslationTask,
 } from '../lib/contracts';
+import { validateMathPlaceholders } from '../lib/math';
 
 const RETRY_DELAYS = [800, 2_000, 5_000];
 
@@ -48,9 +49,24 @@ function systemPrompt(kind: TranslationTask['kind']): string {
     return 'You are a context analyst. Return strict JSON: {"summary":"...","terms":[{"source":"...","preferred":"...","note":"..."}]}. Keep the summary concise and include at most 20 terms.';
   }
   if (kind === 'explain') {
-    return 'You explain translation choices concisely. Return strict JSON: {"items":[{"id":"same id","text":"context-aware explanation"}]}. Never add unrequested items.';
+    return 'You explain translation choices concisely. Return strict JSON: {"items":[{"id":"same id","text":"context-aware explanation"}]}. The text field may use the restricted Markdown contract below. Never add unrequested items.\n' + structuredOutputContract();
   }
-  return 'You are a precise professional translator. Preserve meaning, tone, names, numbers, and formatting. Use the supplied context only to disambiguate. Return strict JSON: {"items":[{"id":"same id","text":"translation"}]}. Return every input id exactly once and no extra prose.';
+  if (kind === 'subtitle') {
+    return 'You are a precise professional subtitle translator. Preserve meaning, tone, names, numbers, and formulas. Use context only to disambiguate. Return strict JSON: {"items":[{"id":"same id","text":"plain-text translation"}]}. Return every input id exactly once and no extra prose. Do not use Markdown or HTML.';
+  }
+  return 'You are a precise professional translator. Preserve meaning, tone, names, numbers, citations, and formatting. Use the supplied context only to disambiguate. Return strict JSON: {"items":[{"id":"same id","text":"translation"}]}. Return every input id exactly once and no extra prose.\n' + structuredOutputContract();
+}
+
+function structuredOutputContract(): string {
+  return [
+    'FORMAT CONTRACT for every items[].text:',
+    '- Use restricted Markdown only: paragraphs, line breaks, headings, lists, blockquotes, **bold**, *italic*, `code`, inline $LaTeX$, and display $$LaTeX$$.',
+    '- Never emit HTML, script, style, images, remote resources, or fenced JSON.',
+    '- A unit may contain math metadata {token, latex, display, fallback} for protected inline formulas and contextMath for nearby display equations. Read both LaTeX fields to understand references and terminology.',
+    '- Copy every token shaped like ⟦WEAVE_MATH_*⟧ from that unit exactly once, unchanged and in the semantically correct position.',
+    '- Never translate, rewrite, renumber, duplicate, delete, wrap, or place a math token inside Markdown emphasis or code.',
+    '- Do not repeat a standalone display equation; the page keeps its original formula.',
+  ].join('\n');
 }
 
 function userPrompt(task: TranslationTask): string {
@@ -59,6 +75,7 @@ function userPrompt(task: TranslationTask): string {
     sourceLanguage: task.sourceLanguage,
     targetLanguage: task.targetLanguage,
     context: task.context ?? null,
+    outputFormat: task.kind === 'page' || task.kind === 'selection' || task.kind === 'explain' ? 'restricted-markdown-latex-v1' : 'plain-text',
     units: task.units,
   });
 }
@@ -104,7 +121,12 @@ function parseResponse(task: TranslationTask, content: string, usage?: Record<st
       const candidate = item as Record<string, unknown>;
       return typeof candidate.id === 'string' && typeof candidate.text === 'string' && expected.has(candidate.id);
     })
-    .map((item) => ({ id: item.id, text: item.text.trim() }));
+    .map((item) => {
+      const unit = task.units.find((candidate) => candidate.id === item.id);
+      const text = item.text.trim();
+      const mathError = validateMathPlaceholders(text, unit?.math);
+      return mathError ? { id: item.id, text: '', error: mathError } : { id: item.id, text };
+    });
   for (const unit of task.units) {
     if (!items.some((item) => item.id === unit.id)) items.push({ id: unit.id, text: '', error: '模型未返回该段译文' });
   }
