@@ -14,6 +14,11 @@ import { containingContext, extractPage } from '../../content/context';
 import { clampFloatingPosition } from '../../content/floating-position';
 import { PageTranslator, type PageTranslationStatus } from '../../content/page-translator';
 import { resolvePageTheme } from '../../content/page-theme';
+import {
+  selectionDotPosition,
+  shouldDismissSelectionDot,
+  type SelectionAnchorSnapshot,
+} from '../../content/selection-anchor';
 import { VideoController, type VideoStatus } from '../../content/video-controller';
 
 interface SelectionState {
@@ -25,6 +30,10 @@ interface SelectionState {
   loading: boolean;
   loadingStage?: 'context' | 'translation' | 'explanation' | undefined;
   error?: string;
+}
+
+interface SelectionAnchor extends SelectionAnchorSnapshot {
+  range: Range;
 }
 
 const IDLE_PAGE: PageTranslationStatus = { state: 'idle', completed: 0, total: 0 };
@@ -50,6 +59,10 @@ function isWeaveInteraction(event: Event): boolean {
   ));
 }
 
+function hasSelectionCard(state: SelectionState | undefined): boolean {
+  return Boolean(state && (state.result || state.loading || state.error));
+}
+
 export default function App(): React.ReactElement | null {
   const [settings, setSettings] = useState<WeaveSettings>();
   const [expanded, setExpanded] = useState(false);
@@ -62,6 +75,7 @@ export default function App(): React.ReactElement | null {
   const translatorRef = useRef<PageTranslator | undefined>(undefined);
   const videoRef = useRef<VideoController | undefined>(undefined);
   const selectionCardRef = useRef<HTMLElement | null>(null);
+  const selectionAnchorRef = useRef<SelectionAnchor | undefined>(undefined);
   const selectionCardDraggingRef = useRef(false);
   const dockDraggedRef = useRef(false);
   const retractTimer = useRef<number | undefined>(undefined);
@@ -123,7 +137,11 @@ export default function App(): React.ReactElement | null {
   }, [host]);
 
   useEffect(() => {
-    if (!settings?.selectionEnabled || siteRule.paused) return;
+    if (!settings?.selectionEnabled || siteRule.paused) {
+      selectionAnchorRef.current = undefined;
+      setSelection((current) => hasSelectionCard(current) ? current : undefined);
+      return;
+    }
     const onPointerUp = (event: PointerEvent) => {
       if (selectionCardDraggingRef.current) return;
       if (isWeaveInteraction(event)) return;
@@ -134,11 +152,18 @@ export default function App(): React.ReactElement | null {
         if (anchor?.closest('input,textarea,select,[contenteditable="true"],pre,code')) return;
         const unit = containingContext(browserSelection, translatorRef.current?.snapshot ?? extractPage().snapshot);
         if (!unit) return;
-        const rect = browserSelection.getRangeAt(0).getBoundingClientRect();
+        const range = browserSelection.getRangeAt(0).cloneRange();
+        const rect = range.getBoundingClientRect();
+        const position = selectionDotPosition(rect, { width: window.innerWidth, height: window.innerHeight });
+        selectionAnchorRef.current = {
+          range,
+          rect: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom },
+          scrollX: window.scrollX,
+          scrollY: window.scrollY,
+        };
         setSelection({
           unit,
-          x: Math.min(window.innerWidth - 54, Math.max(12, rect.right + 6)),
-          y: Math.min(window.innerHeight - 54, Math.max(12, rect.bottom + 8)),
+          ...position,
           loading: false,
         });
       }, 10);
@@ -147,7 +172,68 @@ export default function App(): React.ReactElement | null {
     return () => document.removeEventListener('pointerup', onPointerUp);
   }, [settings?.selectionEnabled, siteRule.paused]);
 
-  const selectionCardVisible = Boolean(selection && (selection.result || selection.loading || selection.error));
+  const selectionCardVisible = hasSelectionCard(selection);
+  const selectionDotVisible = Boolean(selection && !selectionCardVisible);
+
+  useEffect(() => {
+    if (!selectionDotVisible) return;
+    let frame = 0;
+    const dismiss = () => {
+      selectionAnchorRef.current = undefined;
+      setSelection((current) => hasSelectionCard(current) ? current : undefined);
+    };
+    const updatePosition = () => {
+      const anchor = selectionAnchorRef.current;
+      if (!anchor) {
+        dismiss();
+        return;
+      }
+      const rect = anchor.range.getBoundingClientRect();
+      const viewport = { width: window.innerWidth, height: window.innerHeight };
+      if (shouldDismissSelectionDot(
+        anchor,
+        { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom },
+        { x: window.scrollX, y: window.scrollY },
+        viewport,
+      )) {
+        dismiss();
+        return;
+      }
+      const next = selectionDotPosition(rect, viewport);
+      setSelection((current) => {
+        if (!current || hasSelectionCard(current)) return current;
+        if (Math.abs(current.x - next.x) < 0.5 && Math.abs(current.y - next.y) < 0.5) return current;
+        return { ...current, ...next };
+      });
+    };
+    const schedulePositionUpdate = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(updatePosition);
+    };
+    const onPointerDown = (event: PointerEvent) => {
+      if (isWeaveInteraction(event)) return;
+      window.getSelection()?.removeAllRanges();
+      dismiss();
+    };
+    const onSelectionChange = () => {
+      const browserSelection = window.getSelection();
+      const selectedText = browserSelection?.toString().replace(/\s+/g, ' ').trim() ?? '';
+      if (!browserSelection || browserSelection.isCollapsed || selectedText !== selection?.unit.text) dismiss();
+    };
+
+    document.addEventListener('pointerdown', onPointerDown, true);
+    document.addEventListener('selectionchange', onSelectionChange);
+    document.addEventListener('scroll', schedulePositionUpdate, true);
+    window.addEventListener('resize', schedulePositionUpdate);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      document.removeEventListener('pointerdown', onPointerDown, true);
+      document.removeEventListener('selectionchange', onSelectionChange);
+      document.removeEventListener('scroll', schedulePositionUpdate, true);
+      window.removeEventListener('resize', schedulePositionUpdate);
+    };
+  }, [selectionDotVisible, selection?.unit.id, selection?.unit.text]);
+
   useEffect(() => {
     if (!selectionCardVisible) return;
     const keepInViewport = () => {
@@ -236,6 +322,7 @@ export default function App(): React.ReactElement | null {
 
   const translateSelection = async () => {
     if (!selection || !settings) return;
+    selectionAnchorRef.current = undefined;
     const { error: _error, ...withoutError } = selection;
     const needsContext = settings.contextEnabled && !translatorRef.current?.contextFor('selection', settings.targetLanguage);
     setSelection({ ...withoutError, loading: true, loadingStage: needsContext ? 'context' : 'translation' });
@@ -488,8 +575,8 @@ export default function App(): React.ReactElement | null {
         </section>
       </aside>
 
-      {selection && !selection.result && !selection.loading && !selection.error && (
-        <button className="weave-selection-dot" style={{ left: selection.x, top: selection.y }} onPointerDown={(event) => event.stopPropagation()} onClick={() => void translateSelection()} aria-label="翻译所选文本">译</button>
+      {selectionDotVisible && selection && (
+        <button className="weave-selection-dot" style={{ left: selection.x, top: selection.y }} onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); }} onClick={() => void translateSelection()} aria-label="翻译所选文本">译</button>
       )}
 
       {selection && (selection.result || selection.loading || selection.error) && (

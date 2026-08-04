@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 const fixture = `<!doctype html><html lang="en"><head><title>Field Notes</title><style>
-body{margin:0;background:#f5f0e8;color:#172027;font:18px/1.75 Georgia,serif}
+body{min-height:1800px;margin:0;background:#f5f0e8;color:#172027;font:18px/1.75 Georgia,serif}
 main{max-width:760px;margin:70px auto;padding:0 34px}h1{font-size:54px;line-height:1.05}p{margin:28px 0}
 </style></head><body><button id="page-control" style="position:fixed;right:70px;top:42%;padding:10px">Page control</button><main><h1>Field notes on contextual translation</h1>
 <p>A word rarely travels alone. Its heading, neighboring sentence, and the subject of the article all shape the right translation.</p>
@@ -171,7 +171,7 @@ test('loads the unpacked extension and translates a real page through a mock pro
     expect(requestCount).toBeGreaterThanOrEqual(2);
     expect(reasoningEfforts).toContain('high');
 
-    await page.locator('h2').evaluate((heading) => {
+    const selectWorkingMethod = async () => page.locator('h2').evaluate((heading) => {
       const range = document.createRange();
       range.selectNodeContents(heading);
       const selection = window.getSelection();
@@ -179,7 +179,32 @@ test('loads the unpacked extension and translates a real page through a mock pro
       selection?.addRange(range);
       heading.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: 560, clientY: 320 }));
     });
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await selectWorkingMethod();
     const selectionDot = page.getByRole('button', { name: '翻译所选文本' });
+    await expect(selectionDot).toBeVisible();
+    const dotBeforeScroll = await selectionDot.boundingBox();
+    if (!dotBeforeScroll) throw new Error('Selection dot has no bounding box.');
+    await page.evaluate(() => window.scrollBy(0, 60));
+    await expect.poll(async () => (await selectionDot.boundingBox())?.y ?? dotBeforeScroll.y).toBeLessThan(dotBeforeScroll.y - 30);
+    await expect(selectionDot).toBeVisible();
+
+    await page.evaluate(() => window.getSelection()?.removeAllRanges());
+    await expect(selectionDot).toHaveCount(0);
+
+    await selectWorkingMethod();
+    await expect(selectionDot).toBeVisible();
+    await page.mouse.click(1100, 700);
+    await expect(selectionDot).toHaveCount(0);
+
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await selectWorkingMethod();
+    await expect(selectionDot).toBeVisible();
+    await page.evaluate(() => window.scrollBy(0, 400));
+    await expect(selectionDot).toHaveCount(0);
+
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await selectWorkingMethod();
     await expect(selectionDot).toBeVisible();
     await selectionDot.click();
     const cardHandle = page.locator('[aria-label="拖动划词翻译卡片"]');
