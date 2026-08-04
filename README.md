@@ -3,7 +3,7 @@
   <h1>织语 Weave</h1>
   <p>使用自己的 AI 模型，在网页、划词与视频字幕中获得有上下文的自然翻译。</p>
   <p>
-    <img alt="Version 0.2.1" src="https://img.shields.io/badge/version-0.2.1-E85D4A">
+    <img alt="Version 0.3.0" src="https://img.shields.io/badge/version-0.3.0-E85D4A">
     <img alt="Chrome Manifest V3" src="https://img.shields.io/badge/Chrome-Manifest%20V3-2A7F78">
     <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-7-3178C6">
     <img alt="Apache 2.0" src="https://img.shields.io/badge/license-Apache--2.0-111820">
@@ -21,11 +21,19 @@
 - 原文、双语对照、仅译文三种显示模式，译文以独立节点插入，不覆盖原始 DOM。
 - 视口内容优先翻译，并通过 `IntersectionObserver` 与 `MutationObserver` 处理 SPA、无限滚动和延迟加载内容。
 - 翻译前提取页面主题摘要、标题路径、相邻段落和术语候选，减少歧义并保持全文用词一致。
-- 按语义格式识别 MathML（包括 arXiv）、KaTeX、MathJax 与 `role="math"` 公式，不绑定单一站点：模型可读取对应 LaTeX 理解语境，内联公式通过受保护占位符恢复，独立块公式保留网页原件。
-- 译文使用受限 Markdown 规范，并由扩展内置 KaTeX 在本地渲染行内与块级 LaTeX；不执行模型返回的 HTML 或远程资源。
+- 支持论文公式与受限 Markdown 输出，公式处理按数学语义格式工作，不绑定 arXiv 或其他单一站点。
 - 自动排除密码框、表单控件、编辑器、代码块、隐藏节点和扩展自身界面。
 - 自动识别网页深浅色背景，也可以全局或按站点强制使用浅色、深色译文主题。
 - `Alt+Shift+W` 快速开始或停止整页翻译。
+
+### 论文与公式翻译
+
+- 识别原生 MathML（包括 arXiv HTML）、KaTeX、MathJax、`role="math"`、`data-tex` 与 `data-latex`。
+- 内联公式会被替换为不可改写的稳定占位符，同时将对应 LaTeX 提供给模型；返回后由扩展在原位置安全恢复。
+- 独立块公式和公式编号不会生成重复译文框。它们的 LaTeX 会以只读 `contextMath` 关联到前后最近段落，使模型能够理解“由上式”“该度规”等引用。
+- 模型输出只允许受限 Markdown、行内 LaTeX 和块级 LaTeX；扩展使用本地 KaTeX 转换为 MathML，不执行模型返回的 HTML、脚本、样式或远程资源。
+- 如果公式只有图片、Canvas，或没有 LaTeX、MathML、无障碍文本的纯 SVG，织语会保留原始公式与页面排版，但不会猜测公式内容。此类内容需要后续 OCR 或视觉模型支持。
+- 模型遗漏、重复或伪造公式占位符时，该段译文不会写入页面，原文保持不变，并可从侧边坞重试。
 
 ### 划词翻译
 
@@ -106,6 +114,10 @@ pnpm zip
 
 产物位于 `.output/`。该目录是本地构建结果，不提交到 Git。
 
+如果已经通过“加载已解压的扩展程序”安装过织语，重新构建后请进入 `chrome://extensions`，在织语卡片上点击“重新加载”，并刷新正在测试的网页。直接覆盖 `.output/chrome-mv3/` 中的文件不会自动更新已打开页面里的内容脚本。
+
+生产构建还会检查所有扩展文本产物是否为 Chrome 可接受的 UTF-8，并拒绝 Unicode 非字符，避免依赖打包后导致内容脚本无法加载。
+
 ## 首次配置
 
 1. 安装后打开织语设置页，在“模型服务”中选择 DeepSeek 或 OpenAI-compatible。
@@ -134,14 +146,16 @@ pnpm zip
 # 类型检查、单元测试和生产构建
 pnpm check
 
-# 持久化 Chromium 扩展端到端测试
+# 无界面持久化 Chromium 扩展端到端测试（PowerShell）
+$env:WEAVE_E2E='1'
+$env:WEAVE_E2E_HEADLESS='1'
 pnpm test:e2e
 
 # 仅运行单元测试
 pnpm test
 ```
 
-Vitest 覆盖上下文窗口、DOM 排除、数学内容提取、LaTeX 占位契约、受限 Markdown 渲染、字幕断句与时间映射、站点规则、主题识别、悬浮层位置、模型响应映射、重试和密钥存储迁移。Playwright 使用持久化 Chromium 环境，通过本地模拟模型服务验证扩展加载、arXiv 风格公式和真实页面翻译链路。
+当前共有 43 项 Vitest 测试，覆盖上下文窗口、DOM 排除、MathML/KaTeX/MathJax 提取、LaTeX 占位契约、块公式上下文、受限 Markdown 渲染、字幕断句与时间映射、站点规则、主题识别、悬浮层位置、模型响应映射、重试和密钥存储迁移。Playwright 使用持久化 Chromium 环境，通过本地模拟模型服务验证扩展加载、公式元数据确实到达模型、块公式不生成重复译文以及完整页面翻译链路。
 
 ## 项目结构
 
