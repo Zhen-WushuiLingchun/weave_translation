@@ -1,0 +1,140 @@
+:host {
+  --ink: #111820;
+  --ink-2: #1b2730;
+  --paper: #f3ebdd;
+  --paper-muted: #d8d0c3;
+  --coral: #e85d4a;
+  --teal: #2a7f78;
+  --line: rgba(243, 235, 221, 0.15);
+  --shadow: 0 26px 68px rgba(5, 11, 15, 0.36), 0 2px 10px rgba(5, 11, 15, 0.28);
+  color-scheme: dark;
+  font-family: "Noto Sans SC", "Source Han Sans SC", "Microsoft YaHei UI", sans-serif;
+}
+
+* { box-sizing: border-box; }
+button, select, input { font: inherit; }
+button { -webkit-tap-highlight-color: transparent; }
+
+.weave-shell { position: fixed; inset: 0; z-index: 2147483646; width: 0; height: 0; pointer-events: none; }
+.weave-shell button, .weave-shell input, .weave-shell select, .weave-dock, .weave-selection-card { pointer-events: auto; }
+
+.weave-dock {
+  position: fixed;
+  top: var(--weave-y);
+  display: flex;
+  align-items: center;
+  transform: translateY(-50%);
+  filter: drop-shadow(0 8px 24px rgba(5, 11, 15, .25));
+  transition: transform 220ms cubic-bezier(.2,.8,.2,1);
+}
+.weave-dock--right { right: 0; flex-direction: row-reverse; }
+.weave-dock--left { left: 0; }
+.weave-dock.is-fullscreen:not(.is-open) { opacity: .62; }
+
+.weave-grip {
+  width: 14px;
+  height: 48px;
+  border: 0;
+  padding: 0;
+  background: var(--coral);
+  color: var(--paper);
+  cursor: grab;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 6px 20px rgba(232, 93, 74, .28);
+}
+.weave-grip:active { cursor: grabbing; }
+.weave-dock--right .weave-grip { border-radius: 7px 0 0 7px; }
+.weave-dock--left .weave-grip { border-radius: 0 7px 7px 0; }
+.weave-mark { writing-mode: vertical-rl; font: 700 10px/1 "STKaiti", "KaiTi", serif; letter-spacing: .1em; }
+
+.weave-panel {
+  width: 304px;
+  max-height: min(720px, calc(100vh - 28px));
+  overflow: auto;
+  padding: 18px;
+  background:
+    linear-gradient(rgba(255,255,255,.018) 1px, transparent 1px) 0 0/100% 24px,
+    var(--ink);
+  color: var(--paper);
+  border: 1px solid rgba(243,235,221,.12);
+  box-shadow: var(--shadow);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateX(18px) scale(.985);
+  transition: opacity 180ms ease, transform 220ms cubic-bezier(.2,.8,.2,1), visibility 180ms;
+}
+.weave-dock--left .weave-panel { transform: translateX(-18px) scale(.985); }
+.weave-dock--right .weave-panel { border-radius: 12px 0 0 12px; }
+.weave-dock--left .weave-panel { border-radius: 0 12px 12px 0; }
+.weave-dock.is-open .weave-panel { opacity: 1; visibility: visible; transform: translateX(0) scale(1); }
+
+.weave-panel__header { display: flex; justify-content: space-between; gap: 16px; align-items: start; margin-bottom: 16px; }
+.weave-panel__header div { display: grid; gap: 3px; }
+.weave-panel__header strong { font-family: "STSong", "Songti SC", serif; font-size: 17px; font-weight: 700; letter-spacing: .02em; }
+.weave-kicker { color: var(--coral); font: 700 9px/1.2 Georgia, serif; letter-spacing: .18em; }
+
+.weave-icon-button { width: 28px; height: 28px; border: 1px solid var(--line); border-radius: 50%; background: transparent; color: var(--paper-muted); cursor: pointer; }
+.weave-icon-button.is-active { color: var(--coral); border-color: var(--coral); transform: rotate(45deg); }
+
+.weave-progress { height: 2px; background: rgba(243,235,221,.1); margin: -7px 0 13px; overflow: hidden; }
+.weave-progress span { display: block; height: 100%; background: var(--teal); transition: width 240ms ease; }
+
+.weave-primary, .weave-secondary {
+  width: 100%; border: 0; cursor: pointer; display: flex; justify-content: space-between; align-items: center;
+  transition: transform 140ms ease, background 140ms ease;
+}
+.weave-primary { padding: 12px 14px; background: var(--paper); color: var(--ink); font-weight: 800; border-radius: 3px; }
+.weave-primary:hover { transform: translateY(-1px); background: #fff9ef; }
+.weave-primary.is-stop { background: var(--coral); color: #fff; }
+.weave-primary:disabled { opacity: .42; cursor: not-allowed; transform: none; }
+
+.weave-segment { display: grid; grid-template-columns: repeat(3, 1fr); margin: 12px 0; padding: 3px; border: 1px solid var(--line); border-radius: 5px; }
+.weave-segment button { border: 0; padding: 7px 4px; color: #9eaaa9; background: transparent; cursor: pointer; font-size: 11px; }
+.weave-segment button.is-active { color: var(--paper); background: var(--ink-2); box-shadow: inset 0 -2px var(--teal); }
+.weave-segment--small { margin: 9px 0; grid-template-columns: repeat(2, 1fr); }
+
+.weave-field-row { display: flex; align-items: end; gap: 9px; margin-bottom: 9px; }
+.weave-field-row label { flex: 1; display: grid; gap: 5px; color: #95a19f; font-size: 10px; letter-spacing: .08em; }
+.weave-field-row select { appearance: none; width: 100%; border: 1px solid var(--line); border-radius: 4px; padding: 8px 28px 8px 9px; background: var(--ink-2); color: var(--paper); font-size: 12px; }
+.weave-model-dot { width: 9px; height: 9px; margin-bottom: 11px; border-radius: 50%; background: var(--coral); box-shadow: 0 0 0 4px rgba(232,93,74,.1); }
+.weave-model-dot.is-ready { background: var(--teal); box-shadow: 0 0 0 4px rgba(42,127,120,.13); }
+
+.weave-switch-list { border-top: 1px solid var(--line); }
+.weave-switch-list label { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
+.weave-switch-list label > span { font-size: 12px; }
+.weave-switch-list small { display: block; margin-top: 2px; color: #778481; font-size: 9px; }
+.weave-switch-list input { appearance: none; width: 30px; height: 16px; border-radius: 10px; background: #34414a; position: relative; cursor: pointer; transition: background 160ms; }
+.weave-switch-list input::after { content: ""; position: absolute; width: 12px; height: 12px; left: 2px; top: 2px; border-radius: 50%; background: var(--paper); transition: transform 160ms; }
+.weave-switch-list input:checked { background: var(--teal); }
+.weave-switch-list input:checked::after { transform: translateX(14px); }
+
+.weave-video-card { margin-top: 13px; padding: 11px; border: 1px solid rgba(42,127,120,.42); background: rgba(42,127,120,.07); border-radius: 5px; }
+.weave-card-title { display: flex; justify-content: space-between; margin-bottom: 8px; color: var(--teal); font: 700 9px/1 Georgia, serif; letter-spacing: .14em; }
+.weave-card-title i { color: #70817f; font-style: normal; }
+.weave-secondary { padding: 8px 10px; border: 1px solid var(--line); border-radius: 3px; background: transparent; color: var(--paper); font-size: 11px; justify-content: center; }
+.weave-slider { display: flex; gap: 10px; align-items: center; color: #93a09e; font-size: 10px; }
+.weave-slider input { flex: 1; accent-color: var(--coral); }
+
+.weave-notice { padding: 8px 10px; margin: 11px 0 0; border-left: 2px solid var(--coral); background: rgba(232,93,74,.09); color: #f5b5ab; font-size: 10px; line-height: 1.5; }
+.weave-panel footer { display: grid; grid-template-columns: auto auto 1fr auto; gap: 8px; align-items: center; margin-top: 13px; color: #687571; font-size: 9px; }
+.weave-panel footer span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }
+.weave-panel footer button { border: 0; background: transparent; color: #9da9a6; padding: 0; cursor: pointer; font-size: 9px; }
+.weave-panel footer button:hover { color: var(--coral); }
+
+.weave-selection-dot { position: fixed; width: 38px; height: 38px; border: 2px solid var(--paper); border-radius: 50%; background: var(--coral); color: white; box-shadow: 0 8px 25px rgba(17,24,32,.35); cursor: pointer; font-family: "STKaiti", "KaiTi", serif; font-weight: 800; animation: weave-pop 180ms ease-out; }
+.weave-selection-card { position: fixed; width: min(348px, calc(100vw - 24px)); max-height: min(430px, calc(100vh - 24px)); overflow: auto; padding: 15px; border-radius: 7px; background: var(--paper); color: var(--ink); box-shadow: var(--shadow); border-top: 4px solid var(--coral); animation: weave-pop 180ms ease-out; }
+.weave-selection-card header { display: flex; justify-content: space-between; color: var(--teal); font: 700 10px/1 Georgia, serif; letter-spacing: .13em; }
+.weave-selection-card header button { border: 0; background: transparent; color: #53605f; font-size: 18px; cursor: pointer; }
+.weave-selection-card blockquote { margin: 13px 0 8px; padding: 0 0 0 10px; border-left: 2px solid #c9beb0; color: #66706e; font: 12px/1.6 Georgia, "STSong", serif; }
+.weave-selection-result { margin: 0; font: 700 16px/1.7 "STSong", "Songti SC", serif; white-space: pre-wrap; }
+.weave-explanation { margin: 10px 0 0; padding: 9px; background: rgba(42,127,120,.08); color: #365a57; font-size: 11px; line-height: 1.65; }
+.weave-card-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.weave-card-actions button { border: 1px solid #b7aa9a; border-radius: 3px; background: transparent; color: #33413f; padding: 6px 9px; cursor: pointer; font-size: 10px; }
+.weave-loading { display: flex; gap: 5px; padding: 12px 0; }
+.weave-loading i { width: 6px; height: 6px; border-radius: 50%; background: var(--teal); animation: weave-pulse 900ms infinite alternate; }
+.weave-loading i:nth-child(2) { animation-delay: 180ms; }.weave-loading i:nth-child(3) { animation-delay: 360ms; }
+
+@keyframes weave-pop { from { opacity: 0; transform: scale(.93) translateY(5px); } to { opacity: 1; transform: none; } }
+@keyframes weave-pulse { to { opacity: .2; transform: translateY(-3px); } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 1ms !important; transition-duration: 1ms !important; } }

@@ -14,6 +14,10 @@ export default defineConfig({
     action: {
       default_title: '织语 Weave',
     },
+    options_ui: {
+      page: 'options.html',
+      open_in_tab: true,
+    },
     commands: {
       'toggle-page-translation': {
         suggested_key: { default: 'Alt+Shift+W' },
