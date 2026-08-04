@@ -13,6 +13,18 @@ export default defineConfig({
     optional_host_permissions: ['http://*/*', 'https://*/*'],
     action: {
       default_title: '织语 Weave',
+      default_icon: {
+        16: 'icon-16.png',
+        32: 'icon-32.png',
+        48: 'icon-48.png',
+        128: 'icon-128.png',
+      },
+    },
+    icons: {
+      16: 'icon-16.png',
+      32: 'icon-32.png',
+      48: 'icon-48.png',
+      128: 'icon-128.png',
     },
     options_ui: {
       page: 'options.html',
@@ -38,6 +50,7 @@ export default defineConfig({
       manifest.host_permissions = (manifest.host_permissions ?? []).filter(
         (origin: string) => origin !== 'http://*/*' && origin !== 'https://*/*' && origin !== '<all_urls>',
       );
+      if (manifest.options_ui) manifest.options_ui.open_in_tab = true;
     },
   },
 });

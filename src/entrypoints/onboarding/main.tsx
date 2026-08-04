@@ -16,9 +16,12 @@ function Onboarding(): React.ReactElement {
   const grant = async () => {
     setBusy(true);
     try {
-      const result = await sendRuntimeMessage<{ granted: boolean }>({ type: 'REQUEST_ALL_SITES' });
+      const permissionGranted = await browser.permissions.request({ origins: ['http://*/*', 'https://*/*'] });
+      const result = permissionGranted
+        ? await sendRuntimeMessage<{ granted: boolean }>({ type: 'SYNC_GLOBAL_CONTENT' })
+        : { granted: false };
       setGranted(result.granted);
-      setStatus(result.granted ? '侧边坞已启用。打开或刷新普通网页即可看到右侧把手。' : '你暂未授予权限，仍可从工具栏在单个页面临时启用。');
+      setStatus(result.granted ? '侧边坞已启用。已打开的普通网页会立即显示，受保护页面除外。' : '你暂未授予权限，仍可从工具栏在单个页面临时启用。');
     } catch (error) {
       setStatus(error instanceof Error ? error.message : '权限申请失败。');
     } finally {

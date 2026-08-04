@@ -126,7 +126,7 @@ export type RuntimeRequest =
   | { type: 'CLEAR_API_KEY' }
   | { type: 'TEST_PROVIDER'; profile: Omit<ProviderProfile, 'hasApiKey'>; candidateKey?: string }
   | { type: 'TRANSLATE'; task: TranslationTask }
-  | { type: 'REQUEST_ALL_SITES' }
+  | { type: 'SYNC_GLOBAL_CONTENT' }
   | { type: 'GET_PERMISSION_STATE' }
   | { type: 'INJECT_ACTIVE_TAB'; tabId?: number }
   | { type: 'FETCH_CAPTION_JSON'; url: string }

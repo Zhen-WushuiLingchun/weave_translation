@@ -114,14 +114,13 @@ async function handleMessage(message: RuntimeRequest, sender: Browser.runtime.Me
         await cachePut(keyId, host, result);
         return { ok: true, data: result satisfies TranslationResult };
       }
-      case 'REQUEST_ALL_SITES': {
-        const granted = await browser.permissions.request({ origins: ALL_ORIGINS });
-        if (granted) {
-          await registerGlobalContent();
-          const tabs = await browser.tabs.query({ url: ALL_ORIGINS });
-          await Promise.allSettled(tabs.filter((tab) => tab.id != null).map((tab) => injectTab(tab.id)));
-        }
-        return { ok: true, data: { granted } };
+      case 'SYNC_GLOBAL_CONTENT': {
+        const granted = await hasAllSites();
+        if (!granted) return { ok: true, data: { granted: false } };
+        await registerGlobalContent();
+        const tabs = await browser.tabs.query({ url: ALL_ORIGINS });
+        await Promise.allSettled(tabs.filter((tab) => tab.id != null).map((tab) => injectTab(tab.id)));
+        return { ok: true, data: { granted: true } };
       }
       case 'GET_PERMISSION_STATE':
         return { ok: true, data: { allSites: await hasAllSites() } };
