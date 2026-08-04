@@ -22,6 +22,7 @@ interface SelectionState {
   result?: string;
   explanation?: string;
   loading: boolean;
+  loadingStage?: 'context' | 'translation' | 'explanation' | undefined;
   error?: string;
 }
 
@@ -40,6 +41,12 @@ function pageStatusLabel(status: PageTranslationStatus): string {
     default:
       return '页面待翻译';
   }
+}
+
+function isWeaveInteraction(event: Event): boolean {
+  return event.composedPath().some((target) => (
+    target instanceof Element && (target.matches('[data-weave-root]') || target.tagName === 'WEAVE-TRANSLATION-ROOT')
+  ));
 }
 
 export default function App(): React.ReactElement | null {
@@ -81,7 +88,7 @@ export default function App(): React.ReactElement | null {
     if (!settings?.selectionEnabled || siteRule.paused) return;
     const onPointerUp = (event: PointerEvent) => {
       if (selectionCardDraggingRef.current) return;
-      if ((event.target as Element | null)?.closest?.('[data-weave-root]')) return;
+      if (isWeaveInteraction(event)) return;
       window.setTimeout(() => {
         const browserSelection = window.getSelection();
         if (!browserSelection || browserSelection.isCollapsed) return;
@@ -192,9 +199,11 @@ export default function App(): React.ReactElement | null {
   const translateSelection = async () => {
     if (!selection || !settings) return;
     const { error: _error, ...withoutError } = selection;
-    setSelection({ ...withoutError, loading: true });
+    const needsContext = settings.contextEnabled && !translatorRef.current?.currentContext;
+    setSelection({ ...withoutError, loading: true, loadingStage: needsContext ? 'context' : 'translation' });
     try {
       const context: ContextBrief | undefined = settings.contextEnabled ? await translatorRef.current?.ensureContext() : undefined;
+      setSelection((current) => current?.unit.id === selection.unit.id ? { ...current, loadingStage: 'translation' } : current);
       const result = await sendRuntimeMessage<TranslationResult>({
         type: 'TRANSLATE',
         task: {
@@ -207,15 +216,15 @@ export default function App(): React.ReactElement | null {
           stream: true,
         },
       });
-      setSelection((current) => (current ? { ...current, loading: false, result: result.items[0]?.text ?? '' } : current));
+      setSelection((current) => (current ? { ...current, loading: false, loadingStage: undefined, result: result.items[0]?.text ?? '' } : current));
     } catch (error) {
-      setSelection((current) => (current ? { ...current, loading: false, error: error instanceof Error ? error.message : '划词翻译失败' } : current));
+      setSelection((current) => (current ? { ...current, loading: false, loadingStage: undefined, error: error instanceof Error ? error.message : '划词翻译失败' } : current));
     }
   };
 
   const explainSelection = async () => {
     if (!selection?.result || !settings) return;
-    setSelection({ ...selection, loading: true });
+    setSelection({ ...selection, loading: true, loadingStage: 'explanation' });
     try {
       const result = await sendRuntimeMessage<TranslationResult>({
         type: 'TRANSLATE',
@@ -228,9 +237,9 @@ export default function App(): React.ReactElement | null {
           ...(translatorRef.current?.currentContext ? { context: translatorRef.current.currentContext } : {}),
         },
       });
-      setSelection((current) => (current ? { ...current, loading: false, explanation: result.items[0]?.text ?? '' } : current));
+      setSelection((current) => (current ? { ...current, loading: false, loadingStage: undefined, explanation: result.items[0]?.text ?? '' } : current));
     } catch (error) {
-      setSelection((current) => (current ? { ...current, loading: false, error: error instanceof Error ? error.message : '语境解释失败' } : current));
+      setSelection((current) => (current ? { ...current, loading: false, loadingStage: undefined, error: error instanceof Error ? error.message : '语境解释失败' } : current));
     }
   };
 
@@ -418,16 +427,20 @@ export default function App(): React.ReactElement | null {
       </aside>
 
       {selection && !selection.result && !selection.loading && !selection.error && (
-        <button className="weave-selection-dot" style={{ left: selection.x, top: selection.y }} onClick={() => void translateSelection()} aria-label="翻译所选文本">译</button>
+        <button className="weave-selection-dot" style={{ left: selection.x, top: selection.y }} onPointerDown={(event) => event.stopPropagation()} onClick={() => void translateSelection()} aria-label="翻译所选文本">译</button>
       )}
 
       {selection && (selection.result || selection.loading || selection.error) && (
-        <section ref={selectionCardRef} className="weave-selection-card" style={{ left: selectionCardPosition?.x, top: selectionCardPosition?.y }}>
+        <section ref={selectionCardRef} className="weave-selection-card" style={{ left: selectionCardPosition?.x, top: selectionCardPosition?.y }} aria-busy={selection.loading}>
           <header onPointerDown={dragSelectionCard} onKeyDown={moveSelectionCardWithKeyboard} tabIndex={0} aria-label="拖动划词翻译卡片">
             <span><i aria-hidden="true">⠿</i> 上下文划词</span><button onClick={() => setSelection(undefined)} aria-label="关闭划词翻译">×</button>
           </header>
           <blockquote>{selection.unit.text}</blockquote>
-          {selection.loading && <div className="weave-loading"><i /><i /><i /></div>}
+          {selection.loading && <div className="weave-loading-state" role="status" aria-live="polite">
+            <span>{{ context: '正在理解页面语境…', translation: '正在翻译所选文本…', explanation: '正在解释翻译语境…' }[selection.loadingStage ?? 'translation']}</span>
+            <div className="weave-loading" aria-hidden="true"><i /><i /><i /></div>
+            <small>{settings.provider.reasoningMode === 'deep' ? '当前为深入思考，复杂内容可能需要更长时间' : '结果会直接显示在这张卡片中'}</small>
+          </div>}
           {selection.result && <p className="weave-selection-result">{selection.result}</p>}
           {selection.explanation && <p className="weave-explanation">{selection.explanation}</p>}
           {selection.error && <p className="weave-notice">{selection.error}</p>}

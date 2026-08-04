@@ -46,7 +46,7 @@ test('loads the unpacked extension and translates a real page through a mock pro
           : JSON.stringify({ items: (task.units ?? []).map((unit) => ({ id: unit.id, text: `译文：${unit.text}` })) });
         if (payload.stream) {
           response.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8' });
-          response.end(`data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\ndata: [DONE]\n\n`);
+          setTimeout(() => response.end(`data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\ndata: [DONE]\n\n`), 1_200);
           return;
         }
         response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -124,6 +124,10 @@ test('loads the unpacked extension and translates a real page through a mock pro
     const cardHandle = page.locator('[aria-label="拖动划词翻译卡片"]');
     const selectionCard = page.locator('.weave-selection-card');
     await expect(cardHandle).toBeVisible();
+    await expect(page.getByRole('status')).toContainText('正在翻译所选文本');
+    await page.waitForTimeout(250);
+    await expect(page.getByRole('status')).toContainText('正在翻译所选文本');
+    if (visualDirectory) await page.screenshot({ path: path.join(visualDirectory, 'weave-selection-loading.png'), fullPage: false });
     await expect(page.locator('.weave-selection-result')).toContainText('译文：Working method');
     const beforeDrag = await cardHandle.boundingBox();
     if (!beforeDrag) throw new Error('Selection card drag handle has no bounding box.');

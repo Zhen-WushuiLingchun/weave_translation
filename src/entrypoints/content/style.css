@@ -135,10 +135,15 @@ button { -webkit-tap-highlight-color: transparent; }
 .weave-explanation { margin: 10px 0 0; padding: 9px; background: rgba(42,127,120,.08); color: #365a57; font-size: 11px; line-height: 1.65; }
 .weave-card-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 .weave-card-actions button { border: 1px solid #b7aa9a; border-radius: 3px; background: transparent; color: #33413f; padding: 6px 9px; cursor: pointer; font-size: 10px; }
-.weave-loading { display: flex; gap: 5px; padding: 12px 0; }
+.weave-loading-state { position: relative; margin: 11px 0 2px; padding: 11px 12px 10px; overflow: hidden; border: 1px solid rgba(42,127,120,.2); border-radius: 4px; background: rgba(42,127,120,.065); }
+.weave-loading-state::before { content: ""; position: absolute; top: 0; left: 0; width: 38%; height: 2px; background: var(--coral); animation: weave-loading-line 1.25s ease-in-out infinite alternate; }
+.weave-loading-state > span { display: block; color: #264d49; font: 700 13px/1.45 "STSong", "Songti SC", serif; }
+.weave-loading-state small { display: block; margin-top: 6px; color: #78817d; font-size: 9px; line-height: 1.5; }
+.weave-loading { display: flex; gap: 5px; padding: 9px 0 0; }
 .weave-loading i { width: 6px; height: 6px; border-radius: 50%; background: var(--teal); animation: weave-pulse 900ms infinite alternate; }
 .weave-loading i:nth-child(2) { animation-delay: 180ms; }.weave-loading i:nth-child(3) { animation-delay: 360ms; }
 
 @keyframes weave-pop { from { opacity: 0; transform: scale(.93) translateY(5px); } to { opacity: 1; transform: none; } }
 @keyframes weave-pulse { to { opacity: .2; transform: translateY(-3px); } }
+@keyframes weave-loading-line { from { transform: translateX(-105%); } to { transform: translateX(270%); } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 1ms !important; transition-duration: 1ms !important; } }
