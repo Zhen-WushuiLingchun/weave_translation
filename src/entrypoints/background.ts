@@ -12,31 +12,13 @@ import {
 } from '../background/storage';
 import type { ProviderProfile, RuntimeRequest, RuntimeResponse, TranslationResult } from '../lib/contracts';
 
-const SCRIPT_ID = 'weave-global-dock';
+const LEGACY_SCRIPT_ID = 'weave-global-dock';
 const SCRIPT_FILES = ['/content-scripts/content.js'] as const;
 const ALL_ORIGINS = ['http://*/*', 'https://*/*'];
 
-async function hasAllSites(): Promise<boolean> {
-  return browser.permissions.contains({ origins: ALL_ORIGINS });
-}
-
-async function unregisterGlobalContent(): Promise<void> {
-  const registered = await browser.scripting.getRegisteredContentScripts({ ids: [SCRIPT_ID] });
-  if (registered.length) await browser.scripting.unregisterContentScripts({ ids: [SCRIPT_ID] });
-}
-
-async function registerGlobalContent(): Promise<void> {
-  await unregisterGlobalContent();
-  if (!(await hasAllSites())) return;
-  await browser.scripting.registerContentScripts([
-    {
-      id: SCRIPT_ID,
-      matches: ALL_ORIGINS,
-      js: [...SCRIPT_FILES],
-      runAt: 'document_start',
-      persistAcrossSessions: true,
-    },
-  ]);
+async function unregisterLegacyContent(): Promise<void> {
+  const registered = await browser.scripting.getRegisteredContentScripts({ ids: [LEGACY_SCRIPT_ID] });
+  if (registered.length) await browser.scripting.unregisterContentScripts({ ids: [LEGACY_SCRIPT_ID] });
 }
 
 async function injectTab(tabId?: number): Promise<void> {
@@ -44,6 +26,11 @@ async function injectTab(tabId?: number): Promise<void> {
   if (targetId == null) targetId = (await browser.tabs.query({ active: true, currentWindow: true }))[0]?.id;
   if (targetId == null) throw new Error('没有可注入的活动网页。');
   await browser.scripting.executeScript({ target: { tabId: targetId }, files: [...SCRIPT_FILES] });
+}
+
+async function injectOpenTabs(): Promise<void> {
+  const tabs = await browser.tabs.query({ url: ALL_ORIGINS });
+  await Promise.allSettled(tabs.filter((tab) => tab.id != null).map((tab) => injectTab(tab.id)));
 }
 
 export function cacheKey(task: RuntimeRequest & { type: 'TRANSLATE' }, profile: ProviderProfile): string {
@@ -124,19 +111,6 @@ async function handleMessage(message: RuntimeRequest, sender: Browser.runtime.Me
         await cachePut(keyId, host, result);
         return { ok: true, data: result satisfies TranslationResult };
       }
-      case 'SYNC_GLOBAL_CONTENT': {
-        const granted = await hasAllSites();
-        if (!granted) return { ok: true, data: { granted: false } };
-        await registerGlobalContent();
-        const tabs = await browser.tabs.query({ url: ALL_ORIGINS });
-        await Promise.allSettled(tabs.filter((tab) => tab.id != null).map((tab) => injectTab(tab.id)));
-        return { ok: true, data: { granted: true } };
-      }
-      case 'GET_PERMISSION_STATE':
-        return { ok: true, data: { allSites: await hasAllSites() } };
-      case 'INJECT_ACTIVE_TAB':
-        await injectTab(message.tabId);
-        return { ok: true, data: true };
       case 'FETCH_CAPTION_JSON': {
         const url = allowedCaptionUrl(message.url);
         const response = await fetch(url, { credentials: 'include' });
@@ -162,13 +136,12 @@ async function handleMessage(message: RuntimeRequest, sender: Browser.runtime.Me
 
 export default defineBackground(() => {
   void protectStorage();
-  void registerGlobalContent();
+  void unregisterLegacyContent();
 
   browser.runtime.onInstalled.addListener(({ reason }) => {
+    void injectOpenTabs();
     if (reason === 'install') void browser.tabs.create({ url: browser.runtime.getURL('/onboarding.html') });
   });
-  browser.permissions.onAdded.addListener(() => void registerGlobalContent());
-  browser.permissions.onRemoved.addListener(() => void registerGlobalContent());
   browser.runtime.onMessage.addListener((message, sender) => handleMessage(message as RuntimeRequest, sender));
   browser.commands.onCommand.addListener(async (command) => {
     if (command !== 'toggle-page-translation') return;

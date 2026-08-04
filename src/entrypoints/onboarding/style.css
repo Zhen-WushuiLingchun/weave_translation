@@ -10,6 +10,7 @@ h1 em { color: var(--coral); font-style: normal; }
 .permission-card h2 { margin: 22px 0 10px; font: 700 25px/1.35 "STSong", "Songti SC", serif; }
 .permission-card p, .permission-card li { color: #53605e; font-size: 12px; line-height: 1.7; }
 .permission-card ul { padding-left: 20px; margin: 18px 0 24px; }.permission-card li::marker { color: var(--coral); }
+.permission-ready { display:flex;align-items:center;gap:12px;margin:0 0 12px;padding:11px 12px;border:1px solid rgba(42,127,120,.28);background:rgba(42,127,120,.08);color:var(--teal) }.permission-ready>span{display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--teal);color:var(--paper);font-weight:800}.permission-ready div{display:grid;gap:2px}.permission-ready strong{font-size:12px}.permission-ready small{color:#667370;font-size:9px}
 .permission-card .button-primary { width: 100%; }.permission-card .button-quiet { width:100%; margin-top:8px; color:#5f6b68; }
 .permission-card .status { color:#35645f; }
 .onboarding footer { display:flex; justify-content:space-between; color:#65726f; font:700 9px/1 Georgia,serif; letter-spacing:.12em; }

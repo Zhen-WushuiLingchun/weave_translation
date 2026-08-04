@@ -7,10 +7,8 @@ import './style.css';
 
 export default defineContentScript({
   matches: ['http://*/*', 'https://*/*'],
-  registration: 'runtime',
   runAt: 'document_start',
   cssInjectionMode: 'ui',
-  noScriptStartedPostMessage: true,
   async main(ctx) {
     if (document.documentElement.dataset.weaveLoaded === 'true') return;
     document.documentElement.dataset.weaveLoaded = 'true';

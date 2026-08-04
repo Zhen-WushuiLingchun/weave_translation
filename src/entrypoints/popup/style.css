@@ -2,5 +2,6 @@ body { min-width: 330px; min-height: 0; }
 .popup { width: 330px; padding: 18px; background: repeating-linear-gradient(0deg,transparent 0 23px,rgba(243,235,221,.025) 24px),var(--ink); }
 .provider { display:grid; grid-template-columns:auto auto 1fr; align-items:center; gap:8px; margin:20px 0 14px; padding:10px; border:1px solid var(--line); color:#adb7b3; font-size:11px; }
 .provider i { width:8px;height:8px;border-radius:50%;background:var(--coral); }.provider i.ready{background:var(--teal)}.provider b{text-align:right;color:#6f7c78;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.popup-ready{display:flex;align-items:center;gap:10px;padding:10px 11px;border:1px solid rgba(42,127,120,.35);background:rgba(42,127,120,.08);color:var(--teal)}.popup-ready>span{font-weight:800}.popup-ready p{display:grid;gap:3px;margin:0}.popup-ready strong{font-size:11px}.popup-ready small{color:#72807c;font-size:9px}
 .popup > button { width:100%; margin-top:8px; }
 .popup footer { display:flex;justify-content:space-between;align-items:center;margin-top:16px;color:#6f7c78;font-size:9px; }.popup footer button{border:0;background:transparent;color:var(--paper);padding:0}

@@ -16,7 +16,7 @@ button, select, input { font: inherit; }
 button { -webkit-tap-highlight-color: transparent; }
 
 .weave-shell { position: fixed; inset: 0; z-index: 2147483646; width: 0; height: 0; pointer-events: none; }
-.weave-shell button, .weave-shell input, .weave-shell select, .weave-dock, .weave-selection-card { pointer-events: auto; }
+.weave-grip, .weave-selection-dot, .weave-selection-card { pointer-events: auto; }
 
 .weave-dock {
   position: fixed;
@@ -26,6 +26,7 @@ button { -webkit-tap-highlight-color: transparent; }
   transform: translateY(-50%);
   filter: drop-shadow(0 8px 24px rgba(5, 11, 15, .25));
   transition: transform 220ms cubic-bezier(.2,.8,.2,1);
+  pointer-events: none;
 }
 .weave-dock--right { right: 0; flex-direction: row-reverse; }
 .weave-dock--left { left: 0; }
@@ -63,11 +64,12 @@ button { -webkit-tap-highlight-color: transparent; }
   visibility: hidden;
   transform: translateX(18px) scale(.985);
   transition: opacity 180ms ease, transform 220ms cubic-bezier(.2,.8,.2,1), visibility 180ms;
+  pointer-events: none;
 }
 .weave-dock--left .weave-panel { transform: translateX(-18px) scale(.985); }
 .weave-dock--right .weave-panel { border-radius: 12px 0 0 12px; }
 .weave-dock--left .weave-panel { border-radius: 0 12px 12px 0; }
-.weave-dock.is-open .weave-panel { opacity: 1; visibility: visible; transform: translateX(0) scale(1); }
+.weave-dock.is-open .weave-panel { opacity: 1; visibility: visible; transform: translateX(0) scale(1); pointer-events: auto; }
 
 .weave-panel__header { display: flex; justify-content: space-between; gap: 16px; align-items: start; margin-bottom: 16px; }
 .weave-panel__header div { display: grid; gap: 3px; }

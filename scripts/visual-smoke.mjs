@@ -12,11 +12,6 @@ const executablePath = process.env.PLAYWRIGHT_CHROMIUM_PATH ?? path.join(install
 const profileDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'weave-profile-'));
 const extensionDirectory = builtExtensionPath;
 console.log(JSON.stringify({ step: 'profile', profileDirectory, extensionDirectory }));
-const manifestPath = path.join(extensionDirectory, 'manifest.json');
-const originalManifest = fs.readFileSync(manifestPath, 'utf8');
-const manifest = JSON.parse(originalManifest);
-manifest.host_permissions = ['http://*/*', 'https://*/*'];
-fs.writeFileSync(manifestPath, JSON.stringify(manifest));
 
 const visualDirectory = process.env.WEAVE_VISUAL_DIR ?? path.resolve('test-results/visual');
 fs.mkdirSync(visualDirectory, { recursive: true });
@@ -54,9 +49,10 @@ try {
   if (!address || typeof address === 'string') throw new Error('Fixture server did not start.');
   console.log(JSON.stringify({ step: 'dock', port: address.port }));
   await page.goto(`http://127.0.0.1:${address.port}`);
-  const grip = page.getByRole('button', { name: '拖动或展开织语' });
+  const grip = page.getByRole('button', { name: '拖动位置或点击打开织语' });
   await grip.waitFor({ state: 'visible', timeout: 10_000 });
-  await grip.hover();
+  await page.screenshot({ path: path.join(visualDirectory, 'weave-dock-closed.png'), fullPage: false });
+  await grip.click();
   await page.getByRole('button', { name: /翻译本页/ }).waitFor({ state: 'visible' });
   const noHorizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
   if (!noHorizontalOverflow) throw new Error('Dock introduced horizontal page overflow.');
@@ -66,5 +62,4 @@ try {
   console.log(JSON.stringify({ step: 'complete', screenshots: visualDirectory, errors }));
 } finally {
   if (context) await context.close();
-  fs.writeFileSync(manifestPath, originalManifest);
 }

@@ -61,6 +61,7 @@ export default function App(): React.ReactElement | null {
   const videoRef = useRef<VideoController | undefined>(undefined);
   const selectionCardRef = useRef<HTMLElement | null>(null);
   const selectionCardDraggingRef = useRef(false);
+  const dockDraggedRef = useRef(false);
   const retractTimer = useRef<number | undefined>(undefined);
   const host = location.hostname;
 
@@ -246,11 +247,14 @@ export default function App(): React.ReactElement | null {
   const dragDock = (event: React.PointerEvent<HTMLButtonElement>) => {
     if (!settings) return;
     event.currentTarget.setPointerCapture(event.pointerId);
+    dockDraggedRef.current = false;
+    const startX = event.clientX;
     const startY = event.clientY;
     const originalY = settings.dock.yRatio;
     let side: DockSide = settings.dock.side;
     let yRatio = originalY;
     const move = (pointer: PointerEvent) => {
+      if (Math.hypot(pointer.clientX - startX, pointer.clientY - startY) > 5) dockDraggedRef.current = true;
       side = pointer.clientX < window.innerWidth / 2 ? 'left' : 'right';
       yRatio = Math.max(0.08, Math.min(0.92, originalY + (pointer.clientY - startY) / window.innerHeight));
       setSettings((current) => (current ? { ...current, dock: { ...current.dock, side, yRatio } } : current));
@@ -258,11 +262,21 @@ export default function App(): React.ReactElement | null {
     const up = async () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
       const current = await sendRuntimeMessage<WeaveSettings>({ type: 'SAVE_DOCK_STATE', patch: { side, yRatio } });
       setSettings(current);
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up, { once: true });
+    window.addEventListener('pointercancel', up, { once: true });
+  };
+
+  const toggleDock = () => {
+    if (dockDraggedRef.current) {
+      dockDraggedRef.current = false;
+      return;
+    }
+    setExpanded((value) => !value);
   };
 
   const dragSelectionCard = (event: React.PointerEvent<HTMLElement>) => {
@@ -332,13 +346,12 @@ export default function App(): React.ReactElement | null {
         style={{ '--weave-y': `${settings.dock.yRatio * 100}vh` } as React.CSSProperties}
         onPointerEnter={() => {
           if (retractTimer.current) window.clearTimeout(retractTimer.current);
-          setExpanded(true);
         }}
         onPointerLeave={() => {
           if (!settings.dock.pinned) retractTimer.current = window.setTimeout(() => setExpanded(false), 600);
         }}
       >
-        <button className="weave-grip" onPointerDown={dragDock} onClick={() => setExpanded((value) => !value)} aria-label="拖动或展开织语">
+        <button className="weave-grip" onPointerDown={dragDock} onClick={toggleDock} aria-label="拖动位置或点击打开织语" aria-expanded={expanded || settings.dock.pinned}>
           <span className="weave-mark">织</span>
         </button>
 

@@ -7,19 +7,19 @@ import path from 'node:path';
 const fixture = `<!doctype html><html lang="en"><head><title>Field Notes</title><style>
 body{margin:0;background:#f5f0e8;color:#172027;font:18px/1.75 Georgia,serif}
 main{max-width:760px;margin:70px auto;padding:0 34px}h1{font-size:54px;line-height:1.05}p{margin:28px 0}
-</style></head><body><main><h1>Field notes on contextual translation</h1>
+</style></head><body><button id="page-control" style="position:fixed;right:70px;top:42%;padding:10px">Page control</button><main><h1>Field notes on contextual translation</h1>
 <p>A word rarely travels alone. Its heading, neighboring sentence, and the subject of the article all shape the right translation.</p>
 <h2>Working method</h2><p>Weave keeps the source intact, adds a separate translation layer, and lets the reader return to the original at any time.</p>
-</main></body></html>`;
+</main><script>document.querySelector('#page-control').addEventListener('click',event=>event.currentTarget.dataset.clicked='true')</script></body></html>`;
 
 test('loads the unpacked extension and translates a real page through a mock provider', async () => {
   test.skip(process.env.WEAVE_E2E !== '1', 'Set WEAVE_E2E=1 to run the Chrome extension smoke test.');
   const extensionPath = path.resolve('.output/chrome-mv3');
   const manifestPath = path.join(extensionPath, 'manifest.json');
-  const originalManifest = fs.readFileSync(manifestPath, 'utf8');
-  const manifest = JSON.parse(originalManifest) as { host_permissions?: string[] };
-  manifest.host_permissions = ['http://*/*', 'https://*/*'];
-  fs.writeFileSync(manifestPath, JSON.stringify(manifest));
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as { host_permissions?: string[]; optional_host_permissions?: string[]; content_scripts?: unknown[] };
+  expect(manifest.host_permissions).toEqual(['http://*/*', 'https://*/*']);
+  expect(manifest.optional_host_permissions).toBeUndefined();
+  expect(manifest.content_scripts?.length).toBeGreaterThan(0);
 
   const installedRoot = path.join(process.env.LOCALAPPDATA ?? '', 'ms-playwright');
   const chromiumDirectory = fs.readdirSync(installedRoot).filter((name) => /^chromium-\d+$/.test(name)).sort().at(-1);
@@ -78,7 +78,7 @@ test('loads the unpacked extension and translates a real page through a mock pro
 
     await page.goto(`chrome-extension://${extensionId}/onboarding.html`);
     await expect(page.getByRole('heading', { name: /让译文理解/ })).toBeVisible();
-    await expect(page.getByRole('button', { name: /启用所有网页侧边坞|全站侧边坞已启用/ })).toBeVisible();
+    await expect(page.getByText('全站侧边栏已启用')).toBeVisible();
     if (visualDirectory) await page.screenshot({ path: path.join(visualDirectory, 'weave-onboarding.png'), fullPage: true });
 
     await page.goto(`chrome-extension://${extensionId}/options.html`);
@@ -101,9 +101,22 @@ test('loads the unpacked extension and translates a real page through a mock pro
     if (visualDirectory) await page.screenshot({ path: path.join(visualDirectory, 'weave-options.png'), fullPage: true });
 
     await page.goto(`http://127.0.0.1:${address.port}/article`);
-    const grip = page.getByRole('button', { name: '拖动或展开织语' });
+    const grip = page.getByRole('button', { name: '拖动位置或点击打开织语' });
     await expect(grip).toBeVisible({ timeout: 10_000 });
+    const pageControl = page.getByRole('button', { name: 'Page control' });
+    await pageControl.click();
+    await expect(pageControl).toHaveAttribute('data-clicked', 'true');
+    const dockPanel = page.getByLabel('织语快捷设置');
     await grip.hover();
+    await page.waitForTimeout(250);
+    await expect(dockPanel).not.toBeVisible();
+    await grip.click();
+    await expect(dockPanel).toBeVisible();
+    await page.mouse.move(100, 100);
+    await page.waitForTimeout(750);
+    await expect(dockPanel).not.toBeVisible();
+    await grip.click();
+    await expect(dockPanel).toBeVisible();
     const translateButton = page.getByRole('button', { name: /翻译本页/ });
     await expect(translateButton).toBeVisible();
     await translateButton.click();
@@ -152,6 +165,5 @@ test('loads the unpacked extension and translates a real page through a mock pro
   } finally {
     if (context) await context.close();
     await new Promise<void>((resolve) => server.close(() => resolve()));
-    fs.writeFileSync(manifestPath, originalManifest);
   }
 });
