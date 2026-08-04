@@ -1,15 +1,21 @@
 import type { DockState, ProviderProfile, SiteRule, WeaveSettings } from '../lib/contracts';
-import { DEFAULT_SETTINGS, DEFAULT_SITE_RULE } from '../lib/defaults';
+import { DEFAULT_SETTINGS } from '../lib/defaults';
 
 const SETTINGS_KEY = 'weave.settings.v1';
 const LOCAL_KEY = 'weave.secret.local.v1';
 const SESSION_KEY = 'weave.secret.session.v1';
 
-function mergeSettings(raw?: Partial<WeaveSettings>): WeaveSettings {
+export function mergeSettings(raw?: Partial<WeaveSettings>): WeaveSettings {
+  const legacyReasoning = raw?.provider?.reasoningMode;
   return {
     ...DEFAULT_SETTINGS,
     ...raw,
     provider: { ...DEFAULT_SETTINGS.provider, ...raw?.provider },
+    reasoning: raw?.reasoning
+      ? { ...DEFAULT_SETTINGS.reasoning, ...raw.reasoning }
+      : legacyReasoning
+        ? { page: legacyReasoning, selection: legacyReasoning, subtitle: legacyReasoning }
+        : { ...DEFAULT_SETTINGS.reasoning },
     dock: { ...DEFAULT_SETTINGS.dock, ...raw?.dock },
     video: { ...DEFAULT_SETTINGS.video, ...raw?.video },
     siteRules: { ...DEFAULT_SETTINGS.siteRules, ...raw?.siteRules },
@@ -46,8 +52,18 @@ export async function saveSettings(patch: Partial<WeaveSettings>): Promise<Weave
 
 export async function saveSiteRule(host: string, patch: Partial<SiteRule>): Promise<WeaveSettings> {
   const current = await getSettings();
-  const rule = { ...DEFAULT_SITE_RULE, ...current.siteRules[host], ...patch };
+  const rule = { ...current.siteRules[host], ...patch };
   return saveSettings({ siteRules: { ...current.siteRules, [host]: rule } });
+}
+
+export async function deleteSiteRule(pattern: string): Promise<WeaveSettings> {
+  const current = await getSettings();
+  const siteRules = { ...current.siteRules };
+  delete siteRules[pattern];
+  const next = mergeSettings({ ...current, siteRules });
+  const stored = { ...next, provider: { ...next.provider, hasApiKey: false } };
+  await browser.storage.local.set({ [SETTINGS_KEY]: stored });
+  return getSettings();
 }
 
 export async function saveDockState(patch: Partial<DockState>): Promise<WeaveSettings> {

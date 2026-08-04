@@ -8,7 +8,7 @@ const profile: ProviderProfile = {
   model: 'test-model', reasoningMode: 'compatible', targetLanguage: 'zh-CN', keyPersistence: 'session', hasApiKey: true,
 };
 const task: TranslationTask = {
-  id: 'task-1', kind: 'page', sourceLanguage: 'en', targetLanguage: 'zh-CN',
+  id: 'task-1', kind: 'page', scope: 'page', sourceLanguage: 'en', targetLanguage: 'zh-CN',
   units: [{ id: 'a', text: 'Hello' }, { id: 'b', text: 'World' }],
 };
 

@@ -16,6 +16,15 @@ button, select, input { font: inherit; }
 button { -webkit-tap-highlight-color: transparent; }
 
 .weave-shell { position: fixed; inset: 0; z-index: 2147483646; width: 0; height: 0; pointer-events: none; }
+.weave-theme-dark {
+  --weave-surface: #111820; --weave-surface-2: #1b2730; --weave-on-surface: #f3ebdd; --weave-muted: #9eaaa9;
+  --weave-card: #f3ebdd; --weave-card-text: #111820; --weave-card-head: rgba(243,235,221,.96); --line: rgba(243,235,221,.15);
+}
+.weave-theme-light {
+  --weave-surface: #f3ebdd; --weave-surface-2: #e3d8c8; --weave-on-surface: #111820; --weave-muted: #586461;
+  --weave-card: #fffaf0; --weave-card-text: #111820; --weave-card-head: rgba(255,250,240,.96); --line: rgba(17,24,32,.16);
+}
+.weave-theme-dark { color-scheme: dark; }.weave-theme-light { color-scheme: light; }
 .weave-grip, .weave-selection-dot, .weave-selection-card { pointer-events: auto; }
 
 .weave-dock {
@@ -56,9 +65,9 @@ button { -webkit-tap-highlight-color: transparent; }
   padding: 18px;
   background:
     linear-gradient(rgba(255,255,255,.018) 1px, transparent 1px) 0 0/100% 24px,
-    var(--ink);
-  color: var(--paper);
-  border: 1px solid rgba(243,235,221,.12);
+    var(--weave-surface);
+  color: var(--weave-on-surface);
+  border: 1px solid var(--line);
   box-shadow: var(--shadow);
   opacity: 0;
   visibility: hidden;
@@ -76,7 +85,7 @@ button { -webkit-tap-highlight-color: transparent; }
 .weave-panel__header strong { font-family: "STSong", "Songti SC", serif; font-size: 17px; font-weight: 700; letter-spacing: .02em; }
 .weave-kicker { color: var(--coral); font: 700 9px/1.2 Georgia, serif; letter-spacing: .18em; }
 
-.weave-icon-button { width: 28px; height: 28px; border: 1px solid var(--line); border-radius: 50%; background: transparent; color: var(--paper-muted); cursor: pointer; }
+.weave-icon-button { width: 28px; height: 28px; border: 1px solid var(--line); border-radius: 50%; background: transparent; color: var(--weave-muted); cursor: pointer; }
 .weave-icon-button.is-active { color: var(--coral); border-color: var(--coral); transform: rotate(45deg); }
 
 .weave-progress { height: 2px; background: rgba(243,235,221,.1); margin: -7px 0 13px; overflow: hidden; }
@@ -86,19 +95,19 @@ button { -webkit-tap-highlight-color: transparent; }
   width: 100%; border: 0; cursor: pointer; display: flex; justify-content: space-between; align-items: center;
   transition: transform 140ms ease, background 140ms ease;
 }
-.weave-primary { padding: 12px 14px; background: var(--paper); color: var(--ink); font-weight: 800; border-radius: 3px; }
-.weave-primary:hover { transform: translateY(-1px); background: #fff9ef; }
+.weave-primary { padding: 12px 14px; background: var(--weave-on-surface); color: var(--weave-surface); font-weight: 800; border-radius: 3px; }
+.weave-primary:hover { transform: translateY(-1px); filter: brightness(1.05); }
 .weave-primary.is-stop { background: var(--coral); color: #fff; }
 .weave-primary:disabled { opacity: .42; cursor: not-allowed; transform: none; }
 
 .weave-segment { display: grid; grid-template-columns: repeat(3, 1fr); margin: 12px 0; padding: 3px; border: 1px solid var(--line); border-radius: 5px; }
-.weave-segment button { border: 0; padding: 7px 4px; color: #9eaaa9; background: transparent; cursor: pointer; font-size: 11px; }
-.weave-segment button.is-active { color: var(--paper); background: var(--ink-2); box-shadow: inset 0 -2px var(--teal); }
+.weave-segment button { border: 0; padding: 7px 4px; color: var(--weave-muted); background: transparent; cursor: pointer; font-size: 11px; }
+.weave-segment button.is-active { color: var(--weave-on-surface); background: var(--weave-surface-2); box-shadow: inset 0 -2px var(--teal); }
 .weave-segment--small { margin: 9px 0; grid-template-columns: repeat(2, 1fr); }
 
 .weave-field-row { display: flex; align-items: end; gap: 9px; margin-bottom: 9px; }
-.weave-field-row label { flex: 1; display: grid; gap: 5px; color: #95a19f; font-size: 10px; letter-spacing: .08em; }
-.weave-field-row select { appearance: none; width: 100%; border: 1px solid var(--line); border-radius: 4px; padding: 8px 28px 8px 9px; background: var(--ink-2); color: var(--paper); font-size: 12px; }
+.weave-field-row label { flex: 1; min-width: 0; display: grid; gap: 5px; color: var(--weave-muted); font-size: 10px; letter-spacing: .08em; }
+.weave-field-row select { appearance: none; width: 100%; border: 1px solid var(--line); border-radius: 4px; padding: 8px 6px; background: var(--weave-surface-2); color: var(--weave-on-surface); font-size: 11px; }
 .weave-model-dot { width: 9px; height: 9px; margin-bottom: 11px; border-radius: 50%; background: var(--coral); box-shadow: 0 0 0 4px rgba(232,93,74,.1); }
 .weave-model-dot.is-ready { background: var(--teal); box-shadow: 0 0 0 4px rgba(42,127,120,.13); }
 
@@ -114,7 +123,8 @@ button { -webkit-tap-highlight-color: transparent; }
 .weave-video-card { margin-top: 13px; padding: 11px; border: 1px solid rgba(42,127,120,.42); background: rgba(42,127,120,.07); border-radius: 5px; }
 .weave-card-title { display: flex; justify-content: space-between; margin-bottom: 8px; color: var(--teal); font: 700 9px/1 Georgia, serif; letter-spacing: .14em; }
 .weave-card-title i { color: #70817f; font-style: normal; }
-.weave-secondary { padding: 8px 10px; border: 1px solid var(--line); border-radius: 3px; background: transparent; color: var(--paper); font-size: 11px; justify-content: center; }
+.weave-secondary { padding: 8px 10px; border: 1px solid var(--line); border-radius: 3px; background: transparent; color: var(--weave-on-surface); font-size: 11px; justify-content: center; }
+.weave-compact-field { display:flex;align-items:center;justify-content:space-between;gap:10px;margin:8px 0;color:var(--weave-muted);font-size:10px }.weave-compact-field select{border:1px solid var(--line);border-radius:3px;padding:5px 7px;background:var(--weave-surface-2);color:var(--weave-on-surface);font-size:10px}
 .weave-slider { display: flex; gap: 10px; align-items: center; color: #93a09e; font-size: 10px; }
 .weave-slider input { flex: 1; accent-color: var(--coral); }
 
@@ -125,8 +135,8 @@ button { -webkit-tap-highlight-color: transparent; }
 .weave-panel footer button:hover { color: var(--coral); }
 
 .weave-selection-dot { position: fixed; width: 38px; height: 38px; border: 2px solid var(--paper); border-radius: 50%; background: var(--coral); color: white; box-shadow: 0 8px 25px rgba(17,24,32,.35); cursor: pointer; font-family: "STKaiti", "KaiTi", serif; font-weight: 800; animation: weave-pop 180ms ease-out; }
-.weave-selection-card { position: fixed; width: min(348px, calc(100vw - 24px)); max-height: min(430px, calc(100vh - 24px)); overflow: auto; padding: 15px; border-radius: 7px; background: var(--paper); color: var(--ink); box-shadow: var(--shadow); border-top: 4px solid var(--coral); animation: weave-pop 180ms ease-out; overscroll-behavior: contain; }
-.weave-selection-card header { position: sticky; z-index: 2; top: -15px; display: flex; justify-content: space-between; align-items: center; margin: -15px -15px 0; padding: 11px 15px 9px; border-bottom: 1px solid rgba(17,24,32,.09); background: rgba(243,235,221,.96); color: var(--teal); font: 700 10px/1 Georgia, serif; letter-spacing: .13em; cursor: grab; touch-action: none; user-select: none; backdrop-filter: blur(8px); }
+.weave-selection-card { position: fixed; width: min(348px, calc(100vw - 24px)); max-height: min(430px, calc(100vh - 24px)); overflow: auto; padding: 15px; border-radius: 7px; background: var(--weave-card); color: var(--weave-card-text); box-shadow: var(--shadow); border-top: 4px solid var(--coral); animation: weave-pop 180ms ease-out; overscroll-behavior: contain; }
+.weave-selection-card header { position: sticky; z-index: 2; top: -15px; display: flex; justify-content: space-between; align-items: center; margin: -15px -15px 0; padding: 11px 15px 9px; border-bottom: 1px solid var(--line); background: var(--weave-card-head); color: var(--teal); font: 700 10px/1 Georgia, serif; letter-spacing: .13em; cursor: grab; touch-action: none; user-select: none; backdrop-filter: blur(8px); }
 .weave-selection-card header:active { cursor: grabbing; }
 .weave-selection-card header:focus-visible { outline: 2px solid var(--teal); outline-offset: -3px; }
 .weave-selection-card header span { display: inline-flex; align-items: center; gap: 7px; }
@@ -137,6 +147,7 @@ button { -webkit-tap-highlight-color: transparent; }
 .weave-explanation { margin: 10px 0 0; padding: 9px; background: rgba(42,127,120,.08); color: #365a57; font-size: 11px; line-height: 1.65; }
 .weave-card-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 .weave-card-actions button { border: 1px solid #b7aa9a; border-radius: 3px; background: transparent; color: #33413f; padding: 6px 9px; cursor: pointer; font-size: 10px; }
+.weave-selection-mode{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px;padding-top:9px;border-top:1px solid var(--line);color:var(--weave-muted);font-size:9px}.weave-selection-mode select{border:1px solid var(--line);border-radius:3px;padding:5px 7px;background:transparent;color:inherit;font-size:10px}
 .weave-loading-state { position: relative; margin: 11px 0 2px; padding: 11px 12px 10px; overflow: hidden; border: 1px solid rgba(42,127,120,.2); border-radius: 4px; background: rgba(42,127,120,.065); }
 .weave-loading-state::before { content: ""; position: absolute; top: 0; left: 0; width: 38%; height: 2px; background: var(--coral); animation: weave-loading-line 1.25s ease-in-out infinite alternate; }
 .weave-loading-state > span { display: block; color: #264d49; font: 700 13px/1.45 "STSong", "Songti SC", serif; }
@@ -144,6 +155,7 @@ button { -webkit-tap-highlight-color: transparent; }
 .weave-loading { display: flex; gap: 5px; padding: 9px 0 0; }
 .weave-loading i { width: 6px; height: 6px; border-radius: 50%; background: var(--teal); animation: weave-pulse 900ms infinite alternate; }
 .weave-loading i:nth-child(2) { animation-delay: 180ms; }.weave-loading i:nth-child(3) { animation-delay: 360ms; }
+.weave-theme-light .weave-switch-list small,.weave-theme-light .weave-card-title i,.weave-theme-light .weave-panel footer{color:#65716d}.weave-theme-light .weave-switch-list input{background:#b7b0a5}.weave-theme-light .weave-switch-list input:checked{background:var(--teal)}.weave-theme-light .weave-selection-card blockquote{color:#66706e}.weave-theme-dark .weave-selection-card{--weave-card:#17212a;--weave-card-text:#f3ebdd;--weave-card-head:rgba(23,33,42,.96)}.weave-theme-dark .weave-selection-card blockquote{color:#aeb8b4;border-color:#53615e}.weave-theme-dark .weave-selection-card header button{color:#c8d0cc}.weave-theme-dark .weave-card-actions button{color:#d9ded9;border-color:#596560}.weave-theme-dark .weave-loading-state>span{color:#9dd0ca}.weave-theme-dark .weave-loading-state small{color:#9aa6a1}.weave-theme-dark .weave-explanation{color:#a9d4cf}
 
 @keyframes weave-pop { from { opacity: 0; transform: scale(.93) translateY(5px); } to { opacity: 1; transform: none; } }
 @keyframes weave-pulse { to { opacity: .2; transform: translateY(-3px); } }

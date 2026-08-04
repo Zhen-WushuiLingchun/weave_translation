@@ -11,6 +11,7 @@ main{max-width:760px;margin:70px auto;padding:0 34px}h1{font-size:54px;line-heig
 <p>A word rarely travels alone. Its heading, neighboring sentence, and the subject of the article all shape the right translation.</p>
 <h2>Working method</h2><p>Weave keeps the source intact, adds a separate translation layer, and lets the reader return to the original at any time.</p>
 </main><script>document.querySelector('#page-control').addEventListener('click',event=>event.currentTarget.dataset.clicked='true')</script></body></html>`;
+const darkFixture = `<!doctype html><html lang="en"><head><title>Night Notes</title><style>html,body{min-height:100%;background:#111820;color:#f3ebdd}body{margin:0;font:18px/1.7 Georgia,serif}main{max-width:760px;margin:70px auto}</style></head><body><main><h1>Night reading</h1><p>A dark page should receive a dark translation interface.</p></main></body></html>`;
 
 test('loads the unpacked extension and translates a real page through a mock provider', async () => {
   test.skip(process.env.WEAVE_E2E !== '1', 'Set WEAVE_E2E=1 to run the Chrome extension smoke test.');
@@ -29,6 +30,7 @@ test('loads the unpacked extension and translates a real page through a mock pro
   if (visualDirectory) fs.mkdirSync(visualDirectory, { recursive: true });
 
   let requestCount = 0;
+  const reasoningEfforts: string[] = [];
   const server = http.createServer((request, response) => {
     if (request.method === 'POST' && request.url === '/v1/chat/completions') {
       let raw = '';
@@ -36,7 +38,8 @@ test('loads the unpacked extension and translates a real page through a mock pro
       request.on('data', (chunk) => { raw += chunk; });
       request.on('end', () => {
         requestCount += 1;
-        const payload = JSON.parse(raw) as { stream?: boolean; messages: Array<{ role: string; content: string }> };
+        const payload = JSON.parse(raw) as { stream?: boolean; reasoning_effort?: string; messages: Array<{ role: string; content: string }> };
+        reasoningEfforts.push(payload.reasoning_effort ?? 'compatible');
         const task = JSON.parse(payload.messages.find((message) => message.role === 'user')?.content ?? '{}') as {
           task?: string;
           units?: Array<{ id: string; text: string }>;
@@ -55,7 +58,7 @@ test('loads the unpacked extension and translates a real page through a mock pro
       return;
     }
     response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    response.end(fixture);
+    response.end(request.url === '/dark' ? darkFixture : fixture);
   });
 
   let context: Awaited<ReturnType<typeof chromium.launchPersistentContext>> | undefined;
@@ -95,12 +98,20 @@ test('loads the unpacked extension and translates a real page through a mock pro
             id: 'e2e-mock', label: 'E2E Mock', kind: 'openai-compatible', endpoint,
             model: 'mock-translator', reasoningMode: 'compatible', targetLanguage: 'zh-CN', keyPersistence: 'session', hasApiKey: false,
           },
+          siteRules: { '127.0.0.1': { reasoningMode: 'deep' } },
         },
       });
     }, `http://127.0.0.1:${address.port}/v1/chat/completions`);
     if (visualDirectory) await page.screenshot({ path: path.join(visualDirectory, 'weave-options.png'), fullPage: true });
+    await page.getByRole('button', { name: /网页翻译/ }).click();
+    await expect(page.getByRole('heading', { name: '站点翻译档案' })).toBeVisible();
+    await expect(page.getByText(/example\.com\/\*/)).toBeVisible();
+    if (visualDirectory) await page.screenshot({ path: path.join(visualDirectory, 'weave-site-profiles.png'), fullPage: true });
 
+    await page.goto(`http://127.0.0.1:${address.port}/dark`);
+    await expect(page.locator('.weave-shell')).toHaveClass(/weave-theme-dark/, { timeout: 10_000 });
     await page.goto(`http://127.0.0.1:${address.port}/article`);
+    await expect(page.locator('.weave-shell')).toHaveClass(/weave-theme-light/, { timeout: 10_000 });
     const grip = page.getByRole('button', { name: '拖动位置或点击打开织语' });
     await expect(grip).toBeVisible({ timeout: 10_000 });
     const pageControl = page.getByRole('button', { name: 'Page control' });
@@ -121,7 +132,9 @@ test('loads the unpacked extension and translates a real page through a mock pro
     await expect(translateButton).toBeVisible();
     await translateButton.click();
     await expect(page.locator('[data-weave-translation]').first()).toContainText('译文：', { timeout: 15_000 });
+    await expect(page.locator('[data-weave-translation]').first()).toHaveAttribute('data-weave-theme', 'light');
     expect(requestCount).toBeGreaterThanOrEqual(2);
+    expect(reasoningEfforts).toContain('high');
 
     await page.locator('h2').evaluate((heading) => {
       const range = document.createRange();
@@ -142,6 +155,7 @@ test('loads the unpacked extension and translates a real page through a mock pro
     await expect(page.getByRole('status')).toContainText('正在翻译所选文本');
     if (visualDirectory) await page.screenshot({ path: path.join(visualDirectory, 'weave-selection-loading.png'), fullPage: false });
     await expect(page.locator('.weave-selection-result')).toContainText('译文：Working method');
+    expect(reasoningEfforts).toContain('none');
     const beforeDrag = await cardHandle.boundingBox();
     if (!beforeDrag) throw new Error('Selection card drag handle has no bounding box.');
     await page.mouse.move(beforeDrag.x + beforeDrag.width / 2, beforeDrag.y + beforeDrag.height / 2);

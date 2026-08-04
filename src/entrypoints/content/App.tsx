@@ -8,11 +8,12 @@ import type {
   TranslationUnit,
   WeaveSettings,
 } from '../../lib/contracts';
-import { DEFAULT_SITE_RULE } from '../../lib/defaults';
 import { sendRuntimeMessage } from '../../lib/message';
+import { pageSettingsForSite, resolveSiteRule } from '../../lib/site-rules';
 import { containingContext, extractPage } from '../../content/context';
 import { clampFloatingPosition } from '../../content/floating-position';
 import { PageTranslator, type PageTranslationStatus } from '../../content/page-translator';
+import { resolvePageTheme } from '../../content/page-theme';
 import { VideoController, type VideoStatus } from '../../content/video-controller';
 
 interface SelectionState {
@@ -57,6 +58,7 @@ export default function App(): React.ReactElement | null {
   const [selection, setSelection] = useState<SelectionState>();
   const [notice, setNotice] = useState('');
   const [isFullscreen, setFullscreen] = useState(Boolean(document.fullscreenElement));
+  const [detectedTheme, setDetectedTheme] = useState(() => resolvePageTheme('auto'));
   const translatorRef = useRef<PageTranslator | undefined>(undefined);
   const videoRef = useRef<VideoController | undefined>(undefined);
   const selectionCardRef = useRef<HTMLElement | null>(null);
@@ -65,15 +67,43 @@ export default function App(): React.ReactElement | null {
   const retractTimer = useRef<number | undefined>(undefined);
   const host = location.hostname;
 
-  const siteRule = useMemo(() => ({ ...DEFAULT_SITE_RULE, ...settings?.siteRules[host] }), [host, settings]);
+  const siteRule = useMemo(() => resolveSiteRule(settings?.siteRules ?? {}, host), [host, settings?.siteRules]);
+  const pageSettings = useMemo(() => settings ? pageSettingsForSite(settings, siteRule) : undefined, [settings, siteRule]);
+
+  useEffect(() => {
+    let frame = 0;
+    const refresh = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        setDetectedTheme(resolvePageTheme(pageSettings?.pageTheme ?? 'auto'));
+        translatorRef.current?.refreshTheme();
+      });
+    };
+    const observer = new MutationObserver(refresh);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style', 'data-theme', 'data-color-mode'] });
+    if (document.body) observer.observe(document.body, { attributes: true, attributeFilter: ['class', 'style', 'data-theme', 'data-color-mode'] });
+    const media = globalThis.matchMedia?.('(prefers-color-scheme: dark)');
+    media?.addEventListener('change', refresh);
+    window.addEventListener('load', refresh);
+    const refreshTimers = [window.setTimeout(refresh, 300), window.setTimeout(refresh, 1_600)];
+    refresh();
+    return () => {
+      window.cancelAnimationFrame(frame);
+      refreshTimers.forEach((timer) => window.clearTimeout(timer));
+      observer.disconnect();
+      media?.removeEventListener('change', refresh);
+      window.removeEventListener('load', refresh);
+    };
+  }, [pageSettings?.pageTheme]);
 
   useEffect(() => {
     void sendRuntimeMessage<WeaveSettings>({ type: 'GET_SETTINGS' }).then((loaded) => {
       setSettings(loaded);
-      translatorRef.current = new PageTranslator(loaded, setPageStatus);
+      const resolvedRule = resolveSiteRule(loaded.siteRules, host);
+      translatorRef.current = new PageTranslator(pageSettingsForSite(loaded, resolvedRule), setPageStatus);
       videoRef.current = new VideoController(loaded, setVideoStatus);
       setVideoStatus({ supported: videoRef.current.supported, enabled: false, state: 'idle' });
-      const rule = { ...DEFAULT_SITE_RULE, ...loaded.siteRules[host] };
+      const rule = resolvedRule;
       if (rule.autoTranslate && !rule.paused) void translatorRef.current.start();
     });
     const fullscreenListener = () => setFullscreen(Boolean(document.fullscreenElement));
@@ -146,16 +176,16 @@ export default function App(): React.ReactElement | null {
   const persistSettings = useCallback(async (patch: Partial<WeaveSettings>) => {
     const next = await sendRuntimeMessage<WeaveSettings>({ type: 'SAVE_SETTINGS', patch });
     setSettings(next);
-    translatorRef.current?.updateSettings(next);
+    translatorRef.current?.updateSettings(pageSettingsForSite(next, resolveSiteRule(next.siteRules, host)));
     videoRef.current?.updateSettings(next);
     return next;
-  }, []);
+  }, [host]);
 
   const saveSiteRule = useCallback(
     async (patch: Partial<SiteRule>) => {
       const next = await sendRuntimeMessage<WeaveSettings>({ type: 'SAVE_SITE_RULE', host, patch });
       setSettings(next);
-      translatorRef.current?.updateSettings(next);
+      translatorRef.current?.updateSettings(pageSettingsForSite(next, resolveSiteRule(next.siteRules, host)));
       videoRef.current?.updateSettings(next);
     },
     [host],
@@ -178,7 +208,7 @@ export default function App(): React.ReactElement | null {
   const setPageMode = async (mode: PageMode) => {
     if (!settings) return;
     translatorRef.current?.setMode(mode);
-    await persistSettings({ dock: { ...settings.dock, pageMode: mode } });
+    await saveSiteRule({ pageMode: mode });
   };
 
   const toggleVideo = async () => {
@@ -200,16 +230,17 @@ export default function App(): React.ReactElement | null {
   const translateSelection = async () => {
     if (!selection || !settings) return;
     const { error: _error, ...withoutError } = selection;
-    const needsContext = settings.contextEnabled && !translatorRef.current?.currentContext;
+    const needsContext = settings.contextEnabled && !translatorRef.current?.contextFor('selection', settings.targetLanguage);
     setSelection({ ...withoutError, loading: true, loadingStage: needsContext ? 'context' : 'translation' });
     try {
-      const context: ContextBrief | undefined = settings.contextEnabled ? await translatorRef.current?.ensureContext() : undefined;
+      const context: ContextBrief | undefined = settings.contextEnabled ? await translatorRef.current?.ensureContext('selection', settings.targetLanguage) : undefined;
       setSelection((current) => current?.unit.id === selection.unit.id ? { ...current, loadingStage: 'translation' } : current);
       const result = await sendRuntimeMessage<TranslationResult>({
         type: 'TRANSLATE',
         task: {
           id: crypto.randomUUID(),
           kind: 'selection',
+          scope: 'selection',
           sourceLanguage: settings.sourceLanguage,
           targetLanguage: settings.targetLanguage,
           units: [selection.unit],
@@ -227,15 +258,17 @@ export default function App(): React.ReactElement | null {
     if (!selection?.result || !settings) return;
     setSelection({ ...selection, loading: true, loadingStage: 'explanation' });
     try {
+      const selectionContext = translatorRef.current?.contextFor('selection', settings.targetLanguage);
       const result = await sendRuntimeMessage<TranslationResult>({
         type: 'TRANSLATE',
         task: {
           id: crypto.randomUUID(),
           kind: 'explain',
+          scope: 'selection',
           sourceLanguage: settings.sourceLanguage,
           targetLanguage: settings.targetLanguage,
           units: [{ ...selection.unit, text: `原文：${selection.unit.text}\n译文：${selection.result}` }],
-          ...(translatorRef.current?.currentContext ? { context: translatorRef.current.currentContext } : {}),
+          ...(selectionContext ? { context: selectionContext } : {}),
         },
       });
       setSelection((current) => (current ? { ...current, loading: false, loadingStage: undefined, explanation: result.items[0]?.text ?? '' } : current));
@@ -327,7 +360,7 @@ export default function App(): React.ReactElement | null {
     setSelection({ ...selection, ...next });
   };
 
-  if (!settings || siteRule.hidden) return null;
+  if (!settings || !pageSettings || siteRule.hidden) return null;
   const active = pageStatus.state !== 'idle' && pageStatus.state !== 'error';
   const side = settings.dock.side;
   const progress = pageStatus.total ? Math.round((pageStatus.completed / pageStatus.total) * 100) : 0;
@@ -340,7 +373,7 @@ export default function App(): React.ReactElement | null {
     : undefined;
 
   return (
-    <div className="weave-shell" data-weave-root="true">
+    <div className={`weave-shell weave-theme-${detectedTheme}`} data-weave-root="true">
       <aside
         className={`weave-dock weave-dock--${side} ${expanded || settings.dock.pinned ? 'is-open' : ''} ${isFullscreen ? 'is-fullscreen' : ''}`}
         style={{ '--weave-y': `${settings.dock.yRatio * 100}vh` } as React.CSSProperties}
@@ -381,7 +414,7 @@ export default function App(): React.ReactElement | null {
 
           <div className="weave-segment" aria-label="页面显示模式">
             {(['original', 'bilingual', 'translated'] as PageMode[]).map((mode) => (
-              <button key={mode} className={settings.dock.pageMode === mode ? 'is-active' : ''} onClick={() => void setPageMode(mode)}>
+              <button key={mode} className={pageSettings.dock.pageMode === mode ? 'is-active' : ''} onClick={() => void setPageMode(mode)}>
                 {{ original: '原文', bilingual: '双语', translated: '译文' }[mode]}
               </button>
             ))}
@@ -390,7 +423,7 @@ export default function App(): React.ReactElement | null {
           <div className="weave-field-row">
             <label>
               <span>译为</span>
-              <select value={settings.targetLanguage} onChange={(event) => void persistSettings({ targetLanguage: event.target.value })}>
+              <select value={pageSettings.targetLanguage} onChange={(event) => void saveSiteRule({ targetLanguage: event.target.value })}>
                 <option value="zh-CN">简体中文</option>
                 <option value="zh-TW">繁體中文</option>
                 <option value="en">English</option>
@@ -400,11 +433,19 @@ export default function App(): React.ReactElement | null {
             </label>
             <label>
               <span>思考</span>
-              <select value={settings.provider.reasoningMode} onChange={(event) => void persistSettings({ provider: { ...settings.provider, reasoningMode: event.target.value as WeaveSettings['provider']['reasoningMode'] } })}>
+              <select value={pageSettings.reasoning.page} onChange={(event) => void saveSiteRule({ reasoningMode: event.target.value as WeaveSettings['reasoning']['page'] })}>
                 <option value="compatible">兼容</option>
                 <option value="fast">快速</option>
                 <option value="balanced">均衡</option>
                 <option value="deep">深入</option>
+              </select>
+            </label>
+            <label>
+              <span>主题</span>
+              <select value={siteRule.theme ?? settings.pageTheme} onChange={(event) => void saveSiteRule({ theme: event.target.value as WeaveSettings['pageTheme'] })}>
+                <option value="auto">自动</option>
+                <option value="light">浅色</option>
+                <option value="dark">深色</option>
               </select>
             </label>
             <span className={`weave-model-dot ${settings.provider.hasApiKey ? 'is-ready' : ''}`} title={settings.provider.hasApiKey ? '模型已配置' : '需要 API Key'} />
@@ -424,6 +465,7 @@ export default function App(): React.ReactElement | null {
                 <button className={settings.video.mode === 'bilingual' ? 'is-active' : ''} onClick={() => void persistSettings({ video: { ...settings.video, mode: 'bilingual' } })}>双语</button>
                 <button className={settings.video.mode === 'translated' ? 'is-active' : ''} onClick={() => void persistSettings({ video: { ...settings.video, mode: 'translated' } })}>仅译文</button>
               </div>
+              <label className="weave-compact-field"><span>字幕思考</span><select value={settings.reasoning.subtitle} onChange={(event) => void persistSettings({ reasoning: { ...settings.reasoning, subtitle: event.target.value as WeaveSettings['reasoning']['subtitle'] } })}><option value="compatible">兼容</option><option value="fast">快速</option><option value="balanced">均衡</option><option value="deep">深入</option></select></label>
               <label className="weave-slider"><span>字号</span><input type="range" min="0.75" max="1.6" step="0.05" value={settings.video.fontScale} onChange={(event) => void persistSettings({ video: { ...settings.video, fontScale: Number(event.target.value) } })} /></label>
             </div>
           )}
@@ -452,11 +494,12 @@ export default function App(): React.ReactElement | null {
           {selection.loading && <div className="weave-loading-state" role="status" aria-live="polite">
             <span>{{ context: '正在理解页面语境…', translation: '正在翻译所选文本…', explanation: '正在解释翻译语境…' }[selection.loadingStage ?? 'translation']}</span>
             <div className="weave-loading" aria-hidden="true"><i /><i /><i /></div>
-            <small>{settings.provider.reasoningMode === 'deep' ? '当前为深入思考，复杂内容可能需要更长时间' : '结果会直接显示在这张卡片中'}</small>
+            <small>{settings.reasoning.selection === 'deep' ? '划词当前为深入思考，复杂内容可能需要更长时间' : `划词当前为${{ compatible: '兼容', fast: '快速', balanced: '均衡', deep: '深入' }[settings.reasoning.selection]}模式`}</small>
           </div>}
           {selection.result && <p className="weave-selection-result">{selection.result}</p>}
           {selection.explanation && <p className="weave-explanation">{selection.explanation}</p>}
           {selection.error && <p className="weave-notice">{selection.error}</p>}
+          <label className="weave-selection-mode"><span>划词思考</span><select value={settings.reasoning.selection} onChange={(event) => void persistSettings({ reasoning: { ...settings.reasoning, selection: event.target.value as WeaveSettings['reasoning']['selection'] } })}><option value="compatible">兼容</option><option value="fast">快速</option><option value="balanced">均衡</option><option value="deep">深入</option></select></label>
           <div className="weave-card-actions">
             {selection.result && !selection.explanation && <button onClick={() => void explainSelection()}>解释语境</button>}
             {selection.error && <button onClick={() => void translateSelection()}>重试</button>}

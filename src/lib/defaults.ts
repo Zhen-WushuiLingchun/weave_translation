@@ -1,6 +1,6 @@
 import type { SiteRule, WeaveSettings } from './contracts';
 
-export const DEFAULT_SITE_RULE: SiteRule = {
+export const DEFAULT_SITE_RULE: Required<Pick<SiteRule, 'autoTranslate' | 'paused' | 'hidden'>> = {
   autoTranslate: false,
   paused: false,
   hidden: false,
@@ -22,6 +22,12 @@ export const DEFAULT_SETTINGS: WeaveSettings = {
   targetLanguage: 'zh-CN',
   contextEnabled: true,
   selectionEnabled: true,
+  reasoning: {
+    page: 'balanced',
+    selection: 'fast',
+    subtitle: 'fast',
+  },
+  pageTheme: 'auto',
   dock: {
     side: 'right',
     yRatio: 0.42,

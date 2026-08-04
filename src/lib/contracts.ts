@@ -3,6 +3,8 @@ export type PageMode = 'original' | 'bilingual' | 'translated';
 export type DockSide = 'left' | 'right';
 export type ProviderKind = 'deepseek' | 'openai-compatible';
 export type ReasoningMode = 'compatible' | 'fast' | 'balanced' | 'deep';
+export type TranslationScope = 'page' | 'selection' | 'subtitle';
+export type TranslationTheme = 'auto' | 'light' | 'dark';
 
 export interface ProviderProfile {
   id: string;
@@ -48,6 +50,7 @@ export interface TranslationUnit {
 export interface TranslationTask {
   id: string;
   kind: TranslationKind;
+  scope: TranslationScope;
   sourceLanguage: string;
   targetLanguage: string;
   units: TranslationUnit[];
@@ -101,9 +104,30 @@ export interface VideoSettings {
 }
 
 export interface SiteRule {
+  autoTranslate?: boolean;
+  paused?: boolean;
+  hidden?: boolean;
+  pageMode?: PageMode;
+  targetLanguage?: string;
+  reasoningMode?: ReasoningMode;
+  theme?: TranslationTheme;
+}
+
+export interface ResolvedSiteRule {
   autoTranslate: boolean;
   paused: boolean;
   hidden: boolean;
+  pageMode?: PageMode;
+  targetLanguage?: string;
+  reasoningMode?: ReasoningMode;
+  theme?: TranslationTheme;
+  matchedPatterns: string[];
+}
+
+export interface ReasoningSettings {
+  page: ReasoningMode;
+  selection: ReasoningMode;
+  subtitle: ReasoningMode;
 }
 
 export interface WeaveSettings {
@@ -112,6 +136,8 @@ export interface WeaveSettings {
   targetLanguage: string;
   contextEnabled: boolean;
   selectionEnabled: boolean;
+  reasoning: ReasoningSettings;
+  pageTheme: TranslationTheme;
   dock: DockState;
   video: VideoSettings;
   siteRules: Record<string, SiteRule>;
@@ -123,6 +149,7 @@ export type RuntimeRequest =
   | { type: 'GET_SETTINGS' }
   | { type: 'SAVE_SETTINGS'; patch: Partial<WeaveSettings> }
   | { type: 'SAVE_SITE_RULE'; host: string; patch: Partial<SiteRule> }
+  | { type: 'DELETE_SITE_RULE'; pattern: string }
   | { type: 'SAVE_DOCK_STATE'; patch: Partial<DockState> }
   | { type: 'SET_API_KEY'; apiKey: string; persistence: 'local' | 'session' }
   | { type: 'CLEAR_API_KEY' }

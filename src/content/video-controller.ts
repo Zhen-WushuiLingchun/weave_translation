@@ -116,6 +116,7 @@ export class VideoController {
       task: {
         id: crypto.randomUUID(),
         kind: 'summary',
+        scope: 'subtitle',
         sourceLanguage: language,
         targetLanguage: this.settings.targetLanguage,
         units: [{ id: 'video-summary', text: `Video title: ${title}\n\n${sample}` }],
@@ -145,6 +146,7 @@ export class VideoController {
         task: {
           id: crypto.randomUUID(),
           kind: 'subtitle',
+          scope: 'subtitle',
           sourceLanguage: 'auto',
           targetLanguage: this.settings.targetLanguage,
           units: candidates.map((sentence, index) => ({

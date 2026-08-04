@@ -1,10 +1,12 @@
 import type {
   ContextBrief,
   PageMode,
+  TranslationScope,
   TranslationResult,
   WeaveSettings,
 } from '../lib/contracts';
 import { sendRuntimeMessage } from '../lib/message';
+import { resolvePageTheme } from './page-theme';
 import {
   buildTranslationUnits,
   contextSample,
@@ -46,7 +48,7 @@ function isNearViewport(element: HTMLElement): boolean {
 
 export class PageTranslator {
   private extracted: ExtractedPage | undefined;
-  private context: ContextBrief | undefined;
+  private contexts = new Map<string, ContextBrief>();
   private activeRun = 0;
   private processed = new WeakSet<HTMLElement>();
   private translations = new Map<HTMLElement, HTMLElement>();
@@ -62,11 +64,16 @@ export class PageTranslator {
 
   updateSettings(settings: WeaveSettings): void {
     this.settings = settings;
+    this.refreshTheme();
     this.setMode(settings.dock.pageMode);
   }
 
-  get currentContext(): ContextBrief | undefined {
-    return this.context;
+  refreshTheme(): void {
+    for (const translated of this.translations.values()) this.applyTranslationStyle(translated);
+  }
+
+  contextFor(scope: TranslationScope, targetLanguage = this.settings.targetLanguage): ContextBrief | undefined {
+    return this.contexts.get(`${scope}:${targetLanguage}`);
   }
 
   get snapshot() {
@@ -83,9 +90,11 @@ export class PageTranslator {
     this.onStatus(next);
   }
 
-  async ensureContext(): Promise<ContextBrief> {
+  async ensureContext(scope: TranslationScope = 'page', targetLanguage = this.settings.targetLanguage): Promise<ContextBrief> {
     if (!this.settings.contextEnabled) return { summary: '', terms: [] };
-    if (this.context) return this.context;
+    const contextKey = `${scope}:${targetLanguage}`;
+    const existing = this.contexts.get(contextKey);
+    if (existing) return existing;
     this.extracted ??= extractPage();
     this.emit({ state: 'analyzing', completed: 0, total: this.extracted.snapshot.blocks.length });
     const result = await sendRuntimeMessage<TranslationResult>({
@@ -93,13 +102,15 @@ export class PageTranslator {
       task: {
         id: crypto.randomUUID(),
         kind: 'summary',
+        scope,
         sourceLanguage: this.settings.sourceLanguage,
-        targetLanguage: this.settings.targetLanguage,
+        targetLanguage,
         units: [contextSample(this.extracted.snapshot)],
       },
     });
-    this.context = parseContextBrief(result.items[0]?.text ?? '');
-    return this.context;
+    const context = parseContextBrief(result.items[0]?.text ?? '');
+    this.contexts.set(contextKey, context);
+    return context;
   }
 
   async start(): Promise<void> {
@@ -136,6 +147,7 @@ export class PageTranslator {
             task: {
               id: crypto.randomUUID(),
               kind: 'page',
+              scope: 'page',
               sourceLanguage: this.settings.sourceLanguage,
               targetLanguage: this.settings.targetLanguage,
               units: batch,
@@ -175,22 +187,29 @@ export class PageTranslator {
       translated = document.createElement(original.tagName === 'LI' ? 'div' : 'div');
       translated.dataset.weaveTranslation = 'true';
       translated.setAttribute('lang', this.settings.targetLanguage);
-      translated.style.cssText = [
-        'box-sizing:border-box',
-        'margin:.36em 0 .72em',
-        'padding:.56em .78em .62em',
-        'border-left:3px solid #2a7f78',
-        'background:color-mix(in srgb,#f3ebdd 92%,transparent)',
-        'color:#172027',
-        'font:inherit',
-        'line-height:1.72',
-        'white-space:pre-wrap',
-      ].join(';');
+      this.applyTranslationStyle(translated);
       original.insertAdjacentElement('afterend', translated);
       this.translations.set(original, translated);
       this.processed.add(original);
     }
     translated.textContent = text;
+  }
+
+  private applyTranslationStyle(translated: HTMLElement): void {
+    const theme = resolvePageTheme(this.settings.pageTheme);
+    translated.dataset.weaveTheme = theme;
+    translated.style.cssText = [
+      'box-sizing:border-box',
+      'margin:.36em 0 .72em',
+      'padding:.56em .78em .62em',
+      `border-left:3px solid ${theme === 'dark' ? '#54aaa1' : '#2a7f78'}`,
+      `background:${theme === 'dark' ? 'rgba(22,32,40,.94)' : 'rgba(243,235,221,.94)'}`,
+      `color:${theme === 'dark' ? '#f3ebdd' : '#172027'}`,
+      `box-shadow:${theme === 'dark' ? 'inset 0 0 0 1px rgba(243,235,221,.1)' : 'inset 0 0 0 1px rgba(17,24,32,.07)'}`,
+      'font:inherit',
+      'line-height:1.72',
+      'white-space:pre-wrap',
+    ].join(';');
   }
 
   setMode(mode: PageMode): void {
@@ -212,7 +231,7 @@ export class PageTranslator {
     this.translations.clear();
     this.processed = new WeakSet();
     this.extracted = undefined;
-    this.context = undefined;
+    this.contexts.clear();
     this.emit({ state: 'idle', completed: 0, total: 0 });
   }
 

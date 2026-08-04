@@ -2,6 +2,7 @@ import { cacheClear, cacheGet, cachePut } from '../background/cache';
 import { callProvider, ProviderError, validateEndpoint } from '../background/provider';
 import {
   clearApiKey,
+  deleteSiteRule,
   getApiKey,
   getSettings,
   protectStorage,
@@ -10,7 +11,8 @@ import {
   saveSiteRule,
   setApiKey,
 } from '../background/storage';
-import type { ProviderProfile, RuntimeRequest, RuntimeResponse, TranslationResult } from '../lib/contracts';
+import type { ProviderProfile, RuntimeRequest, RuntimeResponse, TranslationResult, TranslationTask, WeaveSettings } from '../lib/contracts';
+import { resolveReasoningMode } from '../lib/reasoning';
 
 const LEGACY_SCRIPT_ID = 'weave-global-dock';
 const SCRIPT_FILES = ['/content-scripts/content.js'] as const;
@@ -39,6 +41,7 @@ export function cacheKey(task: RuntimeRequest & { type: 'TRANSLATE' }, profile: 
     profile.endpoint,
     profile.model,
     profile.reasoningMode,
+    task.task.scope,
     task.task.kind,
     task.task.sourceLanguage,
     task.task.targetLanguage,
@@ -51,6 +54,10 @@ export function cacheKey(task: RuntimeRequest & { type: 'TRANSLATE' }, profile: 
     hash = Math.imul(hash, 16777619);
   }
   return `v2:${(hash >>> 0).toString(16)}`;
+}
+
+export function requestProfile(settings: WeaveSettings, task: TranslationTask, pageUrl?: string): ProviderProfile {
+  return { ...settings.provider, reasoningMode: resolveReasoningMode(settings, task, pageUrl) };
 }
 
 function allowedCaptionUrl(raw: string): URL {
@@ -76,6 +83,8 @@ async function handleMessage(message: RuntimeRequest, sender: Browser.runtime.Me
         return { ok: true, data: await saveSettings(message.patch) };
       case 'SAVE_SITE_RULE':
         return { ok: true, data: await saveSiteRule(message.host, message.patch) };
+      case 'DELETE_SITE_RULE':
+        return { ok: true, data: await deleteSiteRule(message.pattern) };
       case 'SAVE_DOCK_STATE':
         return { ok: true, data: await saveDockState(message.patch) };
       case 'SET_API_KEY':
@@ -91,6 +100,7 @@ async function handleMessage(message: RuntimeRequest, sender: Browser.runtime.Me
         const result = await callProvider({ ...message.profile, hasApiKey: Boolean(key) }, key, {
           id: crypto.randomUUID(),
           kind: 'selection',
+          scope: 'selection',
           sourceLanguage: 'en',
           targetLanguage: 'zh-CN',
           units: [{ id: 'probe', text: 'Translation connection test.' }],
@@ -99,14 +109,15 @@ async function handleMessage(message: RuntimeRequest, sender: Browser.runtime.Me
       }
       case 'TRANSLATE': {
         const settings = await getSettings();
+        const profile = requestProfile(settings, message.task, sender.tab?.url);
         const key = await getApiKey(settings.provider.keyPersistence);
         if (!key && !['localhost', '127.0.0.1', '[::1]'].includes(new URL(settings.provider.endpoint).hostname)) {
           throw new ProviderError('请先在设置中填写 API Key。', 'MISSING_API_KEY');
         }
-        const keyId = cacheKey(message, settings.provider);
+        const keyId = cacheKey(message, profile);
         const cached = await cacheGet(keyId);
         if (cached) return { ok: true, data: cached };
-        const result = await callProvider(settings.provider, key, message.task);
+        const result = await callProvider(profile, key, message.task);
         const host = sender.tab?.url ? new URL(sender.tab.url).hostname : 'extension';
         await cachePut(keyId, host, result);
         return { ok: true, data: result satisfies TranslationResult };
