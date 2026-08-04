@@ -36,7 +36,7 @@ test('loads the unpacked extension and translates a real page through a mock pro
       request.on('data', (chunk) => { raw += chunk; });
       request.on('end', () => {
         requestCount += 1;
-        const payload = JSON.parse(raw) as { messages: Array<{ role: string; content: string }> };
+        const payload = JSON.parse(raw) as { stream?: boolean; messages: Array<{ role: string; content: string }> };
         const task = JSON.parse(payload.messages.find((message) => message.role === 'user')?.content ?? '{}') as {
           task?: string;
           units?: Array<{ id: string; text: string }>;
@@ -44,6 +44,11 @@ test('loads the unpacked extension and translates a real page through a mock pro
         const content = task.task === 'summary'
           ? JSON.stringify({ summary: 'An article about context-aware translation.', terms: [] })
           : JSON.stringify({ items: (task.units ?? []).map((unit) => ({ id: unit.id, text: `译文：${unit.text}` })) });
+        if (payload.stream) {
+          response.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8' });
+          response.end(`data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\ndata: [DONE]\n\n`);
+          return;
+        }
         response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
         response.end(JSON.stringify({ choices: [{ message: { content } }] }));
       });
@@ -88,7 +93,7 @@ test('loads the unpacked extension and translates a real page through a mock pro
         patch: {
           provider: {
             id: 'e2e-mock', label: 'E2E Mock', kind: 'openai-compatible', endpoint,
-            model: 'mock-translator', targetLanguage: 'zh-CN', keyPersistence: 'session', hasApiKey: false,
+            model: 'mock-translator', reasoningMode: 'compatible', targetLanguage: 'zh-CN', keyPersistence: 'session', hasApiKey: false,
           },
         },
       });
@@ -104,9 +109,42 @@ test('loads the unpacked extension and translates a real page through a mock pro
     await translateButton.click();
     await expect(page.locator('[data-weave-translation]').first()).toContainText('译文：', { timeout: 15_000 });
     expect(requestCount).toBeGreaterThanOrEqual(2);
+
+    await page.locator('h2').evaluate((heading) => {
+      const range = document.createRange();
+      range.selectNodeContents(heading);
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      heading.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: 560, clientY: 320 }));
+    });
+    const selectionDot = page.getByRole('button', { name: '翻译所选文本' });
+    await expect(selectionDot).toBeVisible();
+    await selectionDot.click();
+    const cardHandle = page.locator('[aria-label="拖动划词翻译卡片"]');
+    const selectionCard = page.locator('.weave-selection-card');
+    await expect(cardHandle).toBeVisible();
+    await expect(page.locator('.weave-selection-result')).toContainText('译文：Working method');
+    const beforeDrag = await cardHandle.boundingBox();
+    if (!beforeDrag) throw new Error('Selection card drag handle has no bounding box.');
+    await page.mouse.move(beforeDrag.x + beforeDrag.width / 2, beforeDrag.y + beforeDrag.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(beforeDrag.x - 220, beforeDrag.y - 120, { steps: 8 });
+    await page.mouse.up();
+    const afterDrag = await selectionCard.evaluate((card) => {
+      const rect = card.getBoundingClientRect();
+      return { x: rect.x, y: rect.y };
+    });
+    expect(afterDrag.x).toBeLessThan(beforeDrag.x - 100);
+    expect(afterDrag.x).toBeGreaterThanOrEqual(12);
+    expect(afterDrag.y).toBeGreaterThanOrEqual(12);
+    await page.waitForTimeout(80);
+    await expect(selectionCard).toBeVisible();
+    await expect(page.getByRole('button', { name: '翻译所选文本' })).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     expect(consoleErrors).toEqual([]);
     if (visualDirectory) await page.screenshot({ path: path.join(visualDirectory, 'weave-dock.png'), fullPage: false });
+    if (visualDirectory) await page.screenshot({ path: path.join(visualDirectory, 'weave-selection-card.png'), fullPage: false });
   } finally {
     if (context) await context.close();
     await new Promise<void>((resolve) => server.close(() => resolve()));

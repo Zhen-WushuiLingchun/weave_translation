@@ -10,7 +10,7 @@ import {
   saveSiteRule,
   setApiKey,
 } from '../background/storage';
-import type { RuntimeRequest, RuntimeResponse, TranslationResult } from '../lib/contracts';
+import type { ProviderProfile, RuntimeRequest, RuntimeResponse, TranslationResult } from '../lib/contracts';
 
 const SCRIPT_ID = 'weave-global-dock';
 const SCRIPT_FILES = ['/content-scripts/content.js'] as const;
@@ -46,14 +46,24 @@ async function injectTab(tabId?: number): Promise<void> {
   await browser.scripting.executeScript({ target: { tabId: targetId }, files: [...SCRIPT_FILES] });
 }
 
-function cacheKey(task: RuntimeRequest & { type: 'TRANSLATE' }, model: string): string {
-  const serialized = JSON.stringify([model, task.task.kind, task.task.sourceLanguage, task.task.targetLanguage, task.task.context, task.task.units]);
+export function cacheKey(task: RuntimeRequest & { type: 'TRANSLATE' }, profile: ProviderProfile): string {
+  const serialized = JSON.stringify([
+    profile.kind,
+    profile.endpoint,
+    profile.model,
+    profile.reasoningMode,
+    task.task.kind,
+    task.task.sourceLanguage,
+    task.task.targetLanguage,
+    task.task.context,
+    task.task.units,
+  ]);
   let hash = 2166136261;
   for (let index = 0; index < serialized.length; index += 1) {
     hash ^= serialized.charCodeAt(index);
     hash = Math.imul(hash, 16777619);
   }
-  return `v1:${(hash >>> 0).toString(16)}`;
+  return `v2:${(hash >>> 0).toString(16)}`;
 }
 
 function allowedCaptionUrl(raw: string): URL {
@@ -106,7 +116,7 @@ async function handleMessage(message: RuntimeRequest, sender: Browser.runtime.Me
         if (!key && !['localhost', '127.0.0.1', '[::1]'].includes(new URL(settings.provider.endpoint).hostname)) {
           throw new ProviderError('请先在设置中填写 API Key。', 'MISSING_API_KEY');
         }
-        const keyId = cacheKey(message, settings.provider.model);
+        const keyId = cacheKey(message, settings.provider);
         const cached = await cacheGet(keyId);
         if (cached) return { ok: true, data: cached };
         const result = await callProvider(settings.provider, key, message.task);

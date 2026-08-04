@@ -1,11 +1,11 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
 import type { ProviderProfile, TranslationTask } from '../src/lib/contracts';
-import { callProvider, ProviderError, validateEndpoint } from '../src/background/provider';
+import { callProvider, ProviderError, reasoningParameters, validateEndpoint } from '../src/background/provider';
 
 const profile: ProviderProfile = {
   id: 'test', label: 'Test', kind: 'openai-compatible', endpoint: 'https://model.example/v1/chat/completions',
-  model: 'test-model', targetLanguage: 'zh-CN', keyPersistence: 'session', hasApiKey: true,
+  model: 'test-model', reasoningMode: 'compatible', targetLanguage: 'zh-CN', keyPersistence: 'session', hasApiKey: true,
 };
 const task: TranslationTask = {
   id: 'task-1', kind: 'page', sourceLanguage: 'en', targetLanguage: 'zh-CN',
@@ -32,6 +32,26 @@ describe('provider client', () => {
     expect(fetcher).toHaveBeenCalledOnce();
     const headers = fetcher.mock.calls[0]?.[1]?.headers as Record<string, string>;
     expect(headers.Authorization).toBe('Bearer fake-key');
+  });
+
+  it('maps the unified thinking control to DeepSeek and OpenAI-compatible parameters', () => {
+    expect(reasoningParameters({ ...profile, kind: 'deepseek', reasoningMode: 'fast' })).toEqual({ thinking: { type: 'disabled' } });
+    expect(reasoningParameters({ ...profile, kind: 'deepseek', reasoningMode: 'balanced' })).toEqual({ thinking: { type: 'enabled' }, reasoning_effort: 'high' });
+    expect(reasoningParameters({ ...profile, kind: 'deepseek', reasoningMode: 'deep' })).toEqual({ thinking: { type: 'enabled' }, reasoning_effort: 'max' });
+    expect(reasoningParameters({ ...profile, reasoningMode: 'fast' })).toEqual({ reasoning_effort: 'none' });
+    expect(reasoningParameters({ ...profile, reasoningMode: 'balanced' })).toEqual({ reasoning_effort: 'medium' });
+    expect(reasoningParameters({ ...profile, reasoningMode: 'deep' })).toEqual({ reasoning_effort: 'high' });
+    expect(reasoningParameters(profile)).toEqual({});
+  });
+
+  it('sends explicit reasoning without incompatible sampling parameters', async () => {
+    const fetcher = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({
+      choices: [{ message: { content: '{"items":[{"id":"a","text":"你好"},{"id":"b","text":"世界"}]}' } }],
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    await callProvider({ ...profile, reasoningMode: 'deep' }, 'fake-key', task, fetcher as typeof fetch);
+    const body = JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body)) as Record<string, unknown>;
+    expect(body.reasoning_effort).toBe('high');
+    expect(body).not.toHaveProperty('temperature');
   });
 
   it('retries 429 responses and accepts an SSE stream', async () => {

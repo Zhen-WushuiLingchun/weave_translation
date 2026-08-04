@@ -24,6 +24,25 @@ export function validateEndpoint(endpoint: string): URL {
   return url;
 }
 
+export function reasoningParameters(profile: ProviderProfile): Record<string, unknown> {
+  switch (profile.reasoningMode) {
+    case 'fast':
+      return profile.kind === 'deepseek'
+        ? { thinking: { type: 'disabled' } }
+        : { reasoning_effort: 'none' };
+    case 'balanced':
+      return profile.kind === 'deepseek'
+        ? { thinking: { type: 'enabled' }, reasoning_effort: 'high' }
+        : { reasoning_effort: 'medium' };
+    case 'deep':
+      return profile.kind === 'deepseek'
+        ? { thinking: { type: 'enabled' }, reasoning_effort: 'max' }
+        : { reasoning_effort: 'high' };
+    default:
+      return {};
+  }
+}
+
 function systemPrompt(kind: TranslationTask['kind']): string {
   if (kind === 'summary') {
     return 'You are a context analyst. Return strict JSON: {"summary":"...","terms":[{"source":"...","preferred":"...","note":"..."}]}. Keep the summary concise and include at most 20 terms.';
@@ -131,6 +150,7 @@ export async function callProvider(
   const endpoint = validateEndpoint(profile.endpoint);
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+  const reasoning = reasoningParameters(profile);
 
   for (let attempt = 0; attempt < RETRY_DELAYS.length; attempt += 1) {
     let response: Response;
@@ -140,7 +160,8 @@ export async function callProvider(
         headers,
         body: JSON.stringify({
           model: profile.model,
-          temperature: 0.2,
+          ...(profile.reasoningMode === 'compatible' ? { temperature: 0.2 } : {}),
+          ...reasoning,
           stream: Boolean(task.stream),
           messages: [
             { role: 'system', content: systemPrompt(task.kind) },

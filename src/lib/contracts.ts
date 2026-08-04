@@ -2,6 +2,7 @@ export type TranslationKind = 'selection' | 'page' | 'subtitle' | 'summary' | 'e
 export type PageMode = 'original' | 'bilingual' | 'translated';
 export type DockSide = 'left' | 'right';
 export type ProviderKind = 'deepseek' | 'openai-compatible';
+export type ReasoningMode = 'compatible' | 'fast' | 'balanced' | 'deep';
 
 export interface ProviderProfile {
   id: string;
@@ -9,6 +10,7 @@ export interface ProviderProfile {
   kind: ProviderKind;
   endpoint: string;
   model: string;
+  reasoningMode: ReasoningMode;
   targetLanguage: string;
   keyPersistence: 'local' | 'session';
   hasApiKey: boolean;

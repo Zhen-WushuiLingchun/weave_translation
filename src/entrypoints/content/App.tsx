@@ -11,6 +11,7 @@ import type {
 import { DEFAULT_SITE_RULE } from '../../lib/defaults';
 import { sendRuntimeMessage } from '../../lib/message';
 import { containingContext, extractPage } from '../../content/context';
+import { clampFloatingPosition } from '../../content/floating-position';
 import { PageTranslator, type PageTranslationStatus } from '../../content/page-translator';
 import { VideoController, type VideoStatus } from '../../content/video-controller';
 
@@ -51,6 +52,8 @@ export default function App(): React.ReactElement | null {
   const [isFullscreen, setFullscreen] = useState(Boolean(document.fullscreenElement));
   const translatorRef = useRef<PageTranslator | undefined>(undefined);
   const videoRef = useRef<VideoController | undefined>(undefined);
+  const selectionCardRef = useRef<HTMLElement | null>(null);
+  const selectionCardDraggingRef = useRef(false);
   const retractTimer = useRef<number | undefined>(undefined);
   const host = location.hostname;
 
@@ -77,6 +80,7 @@ export default function App(): React.ReactElement | null {
   useEffect(() => {
     if (!settings?.selectionEnabled || siteRule.paused) return;
     const onPointerUp = (event: PointerEvent) => {
+      if (selectionCardDraggingRef.current) return;
       if ((event.target as Element | null)?.closest?.('[data-weave-root]')) return;
       window.setTimeout(() => {
         const browserSelection = window.getSelection();
@@ -97,6 +101,31 @@ export default function App(): React.ReactElement | null {
     document.addEventListener('pointerup', onPointerUp);
     return () => document.removeEventListener('pointerup', onPointerUp);
   }, [settings?.selectionEnabled, siteRule.paused]);
+
+  const selectionCardVisible = Boolean(selection && (selection.result || selection.loading || selection.error));
+  useEffect(() => {
+    if (!selectionCardVisible) return;
+    const keepInViewport = () => {
+      const card = selectionCardRef.current;
+      if (!card) return;
+      const rect = card.getBoundingClientRect();
+      const next = clampFloatingPosition(
+        { x: rect.left, y: rect.top },
+        { width: rect.width, height: rect.height },
+        { width: window.innerWidth, height: window.innerHeight },
+      );
+      setSelection((current) => {
+        if (!current || (Math.abs(current.x - next.x) < 0.5 && Math.abs(current.y - next.y) < 0.5)) return current;
+        return { ...current, ...next };
+      });
+    };
+    const frame = window.requestAnimationFrame(keepInViewport);
+    window.addEventListener('resize', keepInViewport);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener('resize', keepInViewport);
+    };
+  }, [selectionCardVisible, selection?.unit.id]);
 
   useEffect(() => {
     const listener = (message: unknown) => {
@@ -227,10 +256,65 @@ export default function App(): React.ReactElement | null {
     window.addEventListener('pointerup', up, { once: true });
   };
 
+  const dragSelectionCard = (event: React.PointerEvent<HTMLElement>) => {
+    if ((event.target as Element).closest('button')) return;
+    const card = selectionCardRef.current;
+    if (!card) return;
+    selectionCardDraggingRef.current = true;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const rect = card.getBoundingClientRect();
+    const start = { x: event.clientX, y: event.clientY };
+    const origin = { x: rect.left, y: rect.top };
+    const size = { width: rect.width, height: rect.height };
+    const move = (pointer: PointerEvent) => {
+      const next = clampFloatingPosition(
+        { x: origin.x + pointer.clientX - start.x, y: origin.y + pointer.clientY - start.y },
+        size,
+        { width: window.innerWidth, height: window.innerHeight },
+      );
+      setSelection((current) => (current ? { ...current, ...next } : current));
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+      selectionCardDraggingRef.current = false;
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up, { once: true });
+    window.addEventListener('pointercancel', up, { once: true });
+  };
+
+  const moveSelectionCardWithKeyboard = (event: React.KeyboardEvent<HTMLElement>) => {
+    const directions: Record<string, { x: number; y: number }> = {
+      ArrowLeft: { x: -1, y: 0 }, ArrowRight: { x: 1, y: 0 }, ArrowUp: { x: 0, y: -1 }, ArrowDown: { x: 0, y: 1 },
+    };
+    const direction = directions[event.key];
+    const card = selectionCardRef.current;
+    if (!direction || !card || !selection) return;
+    event.preventDefault();
+    const rect = card.getBoundingClientRect();
+    const step = event.shiftKey ? 48 : 16;
+    const next = clampFloatingPosition(
+      { x: selection.x + direction.x * step, y: selection.y + direction.y * step },
+      { width: rect.width, height: rect.height },
+      { width: window.innerWidth, height: window.innerHeight },
+    );
+    setSelection({ ...selection, ...next });
+  };
+
   if (!settings || siteRule.hidden) return null;
   const active = pageStatus.state !== 'idle' && pageStatus.state !== 'error';
   const side = settings.dock.side;
   const progress = pageStatus.total ? Math.round((pageStatus.completed / pageStatus.total) * 100) : 0;
+  const selectionCardPosition = selection
+    ? clampFloatingPosition(
+        { x: selection.x, y: selection.y },
+        { width: Math.min(348, window.innerWidth - 24), height: Math.min(310, window.innerHeight - 24) },
+        { width: window.innerWidth, height: window.innerHeight },
+      )
+    : undefined;
 
   return (
     <div className="weave-shell" data-weave-root="true">
@@ -292,6 +376,15 @@ export default function App(): React.ReactElement | null {
                 <option value="ko">한국어</option>
               </select>
             </label>
+            <label>
+              <span>思考</span>
+              <select value={settings.provider.reasoningMode} onChange={(event) => void persistSettings({ provider: { ...settings.provider, reasoningMode: event.target.value as WeaveSettings['provider']['reasoningMode'] } })}>
+                <option value="compatible">兼容</option>
+                <option value="fast">快速</option>
+                <option value="balanced">均衡</option>
+                <option value="deep">深入</option>
+              </select>
+            </label>
             <span className={`weave-model-dot ${settings.provider.hasApiKey ? 'is-ready' : ''}`} title={settings.provider.hasApiKey ? '模型已配置' : '需要 API Key'} />
           </div>
 
@@ -329,8 +422,10 @@ export default function App(): React.ReactElement | null {
       )}
 
       {selection && (selection.result || selection.loading || selection.error) && (
-        <section className="weave-selection-card" style={{ left: Math.min(selection.x, window.innerWidth - 370), top: Math.min(selection.y, window.innerHeight - 310) }}>
-          <header><span>上下文划词</span><button onClick={() => setSelection(undefined)}>×</button></header>
+        <section ref={selectionCardRef} className="weave-selection-card" style={{ left: selectionCardPosition?.x, top: selectionCardPosition?.y }}>
+          <header onPointerDown={dragSelectionCard} onKeyDown={moveSelectionCardWithKeyboard} tabIndex={0} aria-label="拖动划词翻译卡片">
+            <span><i aria-hidden="true">⠿</i> 上下文划词</span><button onClick={() => setSelection(undefined)} aria-label="关闭划词翻译">×</button>
+          </header>
           <blockquote>{selection.unit.text}</blockquote>
           {selection.loading && <div className="weave-loading"><i /><i /><i /></div>}
           {selection.result && <p className="weave-selection-result">{selection.result}</p>}
