@@ -187,4 +187,4 @@ public/                    # 本地图标资源
 
 欢迎通过 Issue 提交可复现的问题或功能建议。涉及新平台字幕适配、模型提供商或页面注入逻辑的修改，请同时补充测试，并避免提交 API Key、Cookies、字幕签名地址或私密页面夹具。
 
-本项目以 [Apache License 2.0](LICENSE) 发布。公开项目的研究来源、固定 commit 与许可证说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。织语采用洁净室实现，不包含“沉浸式翻译”的闭源代码、会员逻辑、商标、图标或品牌资源。
+本项目以 [Apache License 2.0](LICENSE) 发布。发行构建所使用的开源依赖及其许可证见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
