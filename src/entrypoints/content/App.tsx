@@ -72,7 +72,14 @@ export default function App(): React.ReactElement | null {
 
   useEffect(() => {
     let frame = 0;
+    let observedBody: HTMLElement | null = null;
+    const observeBody = () => {
+      if (!document.body || document.body === observedBody) return;
+      observedBody = document.body;
+      observer.observe(observedBody, { attributes: true, attributeFilter: ['class', 'style', 'data-theme', 'data-color-mode'] });
+    };
     const refresh = () => {
+      observeBody();
       window.cancelAnimationFrame(frame);
       frame = window.requestAnimationFrame(() => {
         setDetectedTheme(resolvePageTheme(pageSettings?.pageTheme ?? 'auto'));
@@ -80,8 +87,8 @@ export default function App(): React.ReactElement | null {
       });
     };
     const observer = new MutationObserver(refresh);
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style', 'data-theme', 'data-color-mode'] });
-    if (document.body) observer.observe(document.body, { attributes: true, attributeFilter: ['class', 'style', 'data-theme', 'data-color-mode'] });
+    observer.observe(document.documentElement, { attributes: true, childList: true, attributeFilter: ['class', 'style', 'data-theme', 'data-color-mode'] });
+    observeBody();
     const media = globalThis.matchMedia?.('(prefers-color-scheme: dark)');
     media?.addEventListener('change', refresh);
     window.addEventListener('load', refresh);

@@ -110,6 +110,26 @@ test('loads the unpacked extension and translates a real page through a mock pro
 
     await page.goto(`http://127.0.0.1:${address.port}/dark`);
     await expect(page.locator('.weave-shell')).toHaveClass(/weave-theme-dark/, { timeout: 10_000 });
+    const darkGrip = page.getByRole('button', { name: '拖动位置或点击打开织语' });
+    await expect(darkGrip).toBeVisible();
+    await darkGrip.click();
+    const darkPanel = page.getByLabel('织语快捷设置');
+    await expect(darkPanel).toBeVisible();
+    const themeSelect = darkPanel.getByLabel('主题');
+    await themeSelect.selectOption('light');
+    await expect(page.locator('.weave-shell')).toHaveClass(/weave-theme-light/);
+    await expect(darkGrip).toBeVisible();
+    await themeSelect.selectOption('dark');
+    await expect(page.locator('.weave-shell')).toHaveClass(/weave-theme-dark/);
+    await expect(darkGrip).toBeVisible();
+    await themeSelect.selectOption('auto');
+    await expect(page.locator('.weave-shell')).toHaveClass(/weave-theme-dark/);
+    await expect(darkGrip).toBeVisible();
+    await page.evaluate(() => {
+      const replacement = document.body.cloneNode(true);
+      document.body.replaceWith(replacement);
+    });
+    await expect(darkGrip).toBeVisible();
     await page.goto(`http://127.0.0.1:${address.port}/article`);
     await expect(page.locator('.weave-shell')).toHaveClass(/weave-theme-light/, { timeout: 10_000 });
     const grip = page.getByRole('button', { name: '拖动位置或点击打开织语' });
@@ -117,6 +137,21 @@ test('loads the unpacked extension and translates a real page through a mock pro
     const pageControl = page.getByRole('button', { name: 'Page control' });
     await pageControl.click();
     await expect(pageControl).toHaveAttribute('data-clicked', 'true');
+    await page.evaluate(() => {
+      const replacement = document.body.cloneNode(true);
+      document.body.replaceWith(replacement);
+    });
+    await expect(grip).toBeVisible();
+    await expect(page.locator('.weave-shell')).toHaveClass(/weave-theme-light/);
+    const floatingHost = page.locator('weave-translation-root');
+    await expect(floatingHost).toHaveAttribute('popover', 'manual');
+    expect(await floatingHost.evaluate((host) => host.matches(':popover-open'))).toBe(true);
+    await page.evaluate(() => {
+      const cover = document.createElement('div');
+      cover.id = 'maximum-z-index-cover';
+      cover.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:rgba(0,0,0,.02);pointer-events:auto';
+      document.body.append(cover);
+    });
     const dockPanel = page.getByLabel('织语快捷设置');
     await grip.hover();
     await page.waitForTimeout(250);
