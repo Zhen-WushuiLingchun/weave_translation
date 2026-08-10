@@ -107,4 +107,27 @@ describe('provider client', () => {
     await expect(callProvider(profile, 'bad-key', task, fetcher as typeof fetch)).rejects.toMatchObject({ code: 'AUTH_ERROR' });
     expect(fetcher).toHaveBeenCalledOnce();
   });
+
+  it('performs at most one local glossary tool round for a capable model', async () => {
+    const fetcher = vi.fn<typeof fetch>(async (_url, init) => {
+      const body = JSON.parse(String(init?.body)) as { messages: Array<Record<string, unknown>>; tool_choice?: string };
+      if (fetcher.mock.calls.length === 1) {
+        return new Response(JSON.stringify({ choices: [{ message: {
+          content: null,
+          tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'lookup_glossary', arguments: '{"queries":["event horizon"]}' } }],
+        } }] }), { status: 200 });
+      }
+      expect(body.tool_choice).toBe('none');
+      expect(body.messages.at(-1)).toMatchObject({ role: 'tool', tool_call_id: 'call-1' });
+      return new Response(JSON.stringify({ choices: [{ message: { content: '{"items":[{"id":"a","text":"事件视界"},{"id":"b","text":"世界"}]}' } }] }), { status: 200 });
+    });
+    const lookup = vi.fn(async () => [{ id: 'term', source: 'event horizon', preferred: '事件视界', note: '', priority: 1 }]);
+    const result = await callProvider(
+      { ...profile, capabilities: ['chat', 'tools'], glossaryMode: 'hybrid' },
+      'fake-key', task, fetcher, { glossaryLookup: lookup },
+    );
+    expect(result.items[0]?.text).toBe('事件视界');
+    expect(lookup).toHaveBeenCalledWith(['event horizon']);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
 });
