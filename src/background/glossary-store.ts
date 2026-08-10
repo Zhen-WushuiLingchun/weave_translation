@@ -95,6 +95,13 @@ export async function storeSuggestedTerms(
   context: GlossaryLookupContext,
 ): Promise<void> {
   if (!suggestions.length) return;
+  const collections = await listGlossaryCollections();
+  if (!collections.some((collection) => collection.id === 'suggestions')) {
+    const now = Date.now();
+    await putGlossaryCollection({
+      id: 'suggestions', name: '待确认术语', description: '模型提出、尚未获得用户确认的候选词条', enabled: true, createdAt: now, updatedAt: now,
+    });
+  }
   const existing = await listGlossaryEntries();
   const existingSources = new Set(existing.map((entry) => entry.source.trim().toLocaleLowerCase()));
   const now = Date.now();

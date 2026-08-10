@@ -40,13 +40,25 @@ export function matchGlossaryEntries(
     .flatMap((entry) => [entry.source, ...entry.aliases].map((term) => ({ entry, term })))
     .sort((left, right) => right.term.length - left.term.length || right.entry.priority - left.entry.priority);
   const seen = new Set<string>();
+  const occupied: Array<{ start: number; end: number }> = [];
   const matches: GlossaryMatch[] = [];
   let bytes = 0;
   for (const candidate of candidates) {
     if (seen.has(candidate.entry.id)) continue;
     const haystack = normalizeGlossaryTerm(text, candidate.entry.caseSensitive);
     const needle = normalizeGlossaryTerm(candidate.term, candidate.entry.caseSensitive);
-    if (!needle || !haystack.includes(needle)) continue;
+    if (!needle) continue;
+    const latinBoundary = !/[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]/u.test(needle);
+    let start = haystack.indexOf(needle);
+    while (start >= 0) {
+      const end = start + needle.length;
+      const left = start === 0 ? '' : haystack[start - 1] ?? '';
+      const right = end >= haystack.length ? '' : haystack[end] ?? '';
+      const boundaryOkay = !latinBoundary || (!/[\p{L}\p{N}_]/u.test(left) && !/[\p{L}\p{N}_]/u.test(right));
+      if (boundaryOkay && !occupied.some((span) => start < span.end && end > span.start)) break;
+      start = haystack.indexOf(needle, start + 1);
+    }
+    if (start < 0) continue;
     const match: GlossaryMatch = {
       id: candidate.entry.id,
       source: candidate.entry.source,
@@ -57,6 +69,7 @@ export function matchGlossaryEntries(
     const size = new TextEncoder().encode(JSON.stringify(match)).byteLength;
     if (matches.length >= limit || bytes + size > byteLimit) break;
     matches.push(match);
+    occupied.push({ start, end: start + needle.length });
     seen.add(candidate.entry.id);
     bytes += size;
   }

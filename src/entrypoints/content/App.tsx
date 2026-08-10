@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
+  AsrStatusPayload,
   ContextBrief,
   DockSide,
+  EffectiveRoute,
   PageMode,
   SiteRule,
+  TaskRouteKey,
   TranslationResult,
   TranslationUnit,
   WeaveSettings,
@@ -77,6 +80,7 @@ export default function App(): React.ReactElement | null {
   const [expanded, setExpanded] = useState(false);
   const [pageStatus, setPageStatus] = useState<PageTranslationStatus>(IDLE_PAGE);
   const [videoStatus, setVideoStatus] = useState<VideoStatus>({ supported: false, enabled: false, state: 'idle' });
+  const [effectiveRoutes, setEffectiveRoutes] = useState<EffectiveRoute[]>([]);
   const [selection, setSelection] = useState<SelectionState>();
   const [notice, setNotice] = useState('');
   const [isFullscreen, setFullscreen] = useState(Boolean(document.fullscreenElement));
@@ -129,6 +133,7 @@ export default function App(): React.ReactElement | null {
   useEffect(() => {
     void sendRuntimeMessage<WeaveSettings>({ type: 'GET_SETTINGS' }).then((loaded) => {
       setSettings(loaded);
+      void sendRuntimeMessage<EffectiveRoute[]>({ type: 'GET_EFFECTIVE_ROUTES' }).then(setEffectiveRoutes);
       const resolvedRule = resolveSiteRule(loaded.siteRules, host);
       translatorRef.current = new PageTranslator(pageSettingsForSite(loaded, resolvedRule), setPageStatus);
       videoRef.current = new VideoController(loaded, setVideoStatus);
@@ -269,7 +274,9 @@ export default function App(): React.ReactElement | null {
 
   useEffect(() => {
     const listener = (message: unknown) => {
-      if ((message as { type?: string })?.type === 'TOGGLE_PAGE_TRANSLATION') void togglePage();
+      const value = message as { type?: string; payload?: AsrStatusPayload };
+      if (value.type === 'TOGGLE_PAGE_TRANSLATION') void togglePage();
+      if (value.type === 'WEAVE_ASR_UPDATE' && value.payload) videoRef.current?.acceptAsrUpdate(value.payload);
     };
     browser.runtime.onMessage.addListener(listener);
     return () => browser.runtime.onMessage.removeListener(listener);
@@ -282,6 +289,16 @@ export default function App(): React.ReactElement | null {
     videoRef.current?.updateSettings(next);
     return next;
   }, [host]);
+
+  const setTabModel = useCallback(async (route: TaskRouteKey, profileId?: string) => {
+    const routes = await sendRuntimeMessage<EffectiveRoute[]>({ type: 'SET_TAB_MODEL', route, ...(profileId ? { profileId } : {}) });
+    setEffectiveRoutes(routes);
+  }, []);
+
+  const saveTaskRoute = useCallback(async (route: TaskRouteKey, patch: Partial<WeaveSettings['taskRoutes'][TaskRouteKey]>) => {
+    if (!settings) return;
+    await persistSettings({ taskRoutes: { ...settings.taskRoutes, [route]: { ...settings.taskRoutes[route], ...patch } } });
+  }, [persistSettings, settings]);
 
   const saveSiteRule = useCallback(
     async (patch: Partial<SiteRule>) => {
@@ -322,7 +339,8 @@ export default function App(): React.ReactElement | null {
       return;
     }
     try {
-      await videoRef.current.enable();
+      if (videoStatus.state === 'no-subtitles' || videoStatus.source === 'asr') await videoRef.current.enableAsr();
+      else await videoRef.current.enable();
       await persistSettings({ video: { ...settings.video, enabled: true } });
     } catch (error) {
       setNotice(error instanceof Error ? error.message : '字幕翻译失败');
@@ -344,6 +362,7 @@ export default function App(): React.ReactElement | null {
           id: crypto.randomUUID(),
           kind: 'selection',
           scope: 'selection',
+          route: 'selectionTranslation',
           sourceLanguage: settings.sourceLanguage,
           targetLanguage: settings.targetLanguage,
           units: [selection.unit],
@@ -368,6 +387,7 @@ export default function App(): React.ReactElement | null {
           id: crypto.randomUUID(),
           kind: 'explain',
           scope: 'selection',
+          route: 'selectionExplanation',
           sourceLanguage: settings.sourceLanguage,
           targetLanguage: settings.targetLanguage,
           units: [{ ...selection.unit, text: `原文：${selection.unit.text}\n译文：${selection.result}` }],
@@ -464,6 +484,14 @@ export default function App(): React.ReactElement | null {
   };
 
   if (!settings || !pageSettings || siteRule.hidden) return null;
+  const enabledChatModels = settings.models.filter((model) => model.enabled && model.capabilities.includes('chat'));
+  const effectiveProfileId = (route: TaskRouteKey) => effectiveRoutes.find((item) => item.route === route)?.profileId ?? settings.taskRoutes[route].profileId;
+  const profileFor = (route: TaskRouteKey) => settings.models.find((model) => model.id === effectiveProfileId(route));
+  const connectionFor = (route: TaskRouteKey) => settings.connections.find((connection) => connection.id === profileFor(route)?.connectionId);
+  const pageProfile = profileFor('pageTranslation');
+  const pageConnection = connectionFor('pageTranslation');
+  const selectionRoute = settings.taskRoutes.selectionTranslation;
+  const subtitleRoute = settings.taskRoutes.subtitleTranslation;
   const active = pageStatus.state !== 'idle' && pageStatus.state !== 'error';
   const side = settings.dock.side;
   const progress = pageStatus.total ? Math.round((pageStatus.completed / pageStatus.total) * 100) : 0;
@@ -551,8 +579,16 @@ export default function App(): React.ReactElement | null {
                 <option value="dark">深色</option>
               </select>
             </label>
-            <span className={`weave-model-dot ${settings.provider.hasApiKey ? 'is-ready' : ''}`} title={settings.provider.hasApiKey ? '模型已配置' : '需要 API Key'} />
+            <span className={`weave-model-dot ${pageConnection?.hasApiKey || pageConnection?.chatEndpoint.startsWith('http://localhost') ? 'is-ready' : ''}`} title={pageConnection?.hasApiKey ? '模型已配置' : '需要 API Key'} />
           </div>
+
+          <label className="weave-route-field">
+            <span>本标签页模型</span>
+            <select value={effectiveProfileId('pageTranslation')} onChange={(event) => void setTabModel('pageTranslation', event.target.value)}>
+              {enabledChatModels.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
+            </select>
+            <button onClick={() => void saveTaskRoute('pageTranslation', { profileId: effectiveProfileId('pageTranslation') })}>设为默认</button>
+          </label>
 
           <div className="weave-switch-list">
             <label><span>智能上下文<small>页面摘要与邻近段落</small></span><input type="checkbox" checked={settings.contextEnabled} onChange={(event) => void persistSettings({ contextEnabled: event.target.checked })} /></label>
@@ -562,13 +598,14 @@ export default function App(): React.ReactElement | null {
 
           {videoStatus.supported && (
             <div className="weave-video-card">
-              <div className="weave-card-title"><span>VIDEO / 字幕</span><i>{videoStatus.state === 'ready' ? 'SYNC' : 'LOCAL'}</i></div>
-              <button className="weave-secondary" onClick={() => void toggleVideo()}>{videoStatus.enabled ? '关闭字幕翻译' : '开启字幕翻译'}</button>
+              <div className="weave-card-title"><span>VIDEO / 字幕</span><i>{videoStatus.source === 'asr' ? 'ASR' : videoStatus.state === 'ready' ? 'SYNC' : 'LOCAL'}</i></div>
+              <button className="weave-secondary" onClick={() => void toggleVideo()}>{videoStatus.enabled ? '关闭字幕翻译' : videoStatus.state === 'no-subtitles' ? '生成并翻译字幕' : '开启字幕翻译'}</button>
+              <label className="weave-compact-field"><span>字幕模型</span><select value={effectiveProfileId('subtitleTranslation')} onChange={(event) => void setTabModel('subtitleTranslation', event.target.value)}>{enabledChatModels.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}</select></label>
               <div className="weave-segment weave-segment--small">
                 <button className={settings.video.mode === 'bilingual' ? 'is-active' : ''} onClick={() => void persistSettings({ video: { ...settings.video, mode: 'bilingual' } })}>双语</button>
                 <button className={settings.video.mode === 'translated' ? 'is-active' : ''} onClick={() => void persistSettings({ video: { ...settings.video, mode: 'translated' } })}>仅译文</button>
               </div>
-              <label className="weave-compact-field"><span>字幕思考</span><select value={settings.reasoning.subtitle} onChange={(event) => void persistSettings({ reasoning: { ...settings.reasoning, subtitle: event.target.value as WeaveSettings['reasoning']['subtitle'] } })}><option value="compatible">兼容</option><option value="fast">快速</option><option value="balanced">均衡</option><option value="deep">深入</option></select></label>
+              <label className="weave-compact-field"><span>字幕思考</span><select value={subtitleRoute.reasoningMode} onChange={(event) => void saveTaskRoute('subtitleTranslation', { reasoningMode: event.target.value as WeaveSettings['taskRoutes']['subtitleTranslation']['reasoningMode'] })}><option value="compatible">兼容</option><option value="fast">快速</option><option value="balanced">均衡</option><option value="deep">深入</option></select></label>
               <label className="weave-slider"><span>字号</span><input type="range" min="0.75" max="1.6" step="0.05" value={settings.video.fontScale} onChange={(event) => void persistSettings({ video: { ...settings.video, fontScale: Number(event.target.value) } })} /></label>
             </div>
           )}
@@ -578,7 +615,7 @@ export default function App(): React.ReactElement | null {
           <footer>
             <button onClick={() => void saveSiteRule({ paused: !siteRule.paused })}>{siteRule.paused ? '恢复本站' : '暂停本站'}</button>
             <button onClick={() => void saveSiteRule({ hidden: true })}>隐藏本站</button>
-            <span>{settings.provider.label} · {settings.provider.model}</span>
+            <span>{pageProfile?.label ?? '未配置模型'} · {pageProfile?.model ?? '—'}</span>
             <button onClick={() => void sendRuntimeMessage({ type: 'OPEN_OPTIONS' })}>设置</button>
           </footer>
         </section>
@@ -597,12 +634,13 @@ export default function App(): React.ReactElement | null {
           {selection.loading && <div className="weave-loading-state" role="status" aria-live="polite">
             <span>{{ context: '正在理解页面语境…', translation: '正在翻译所选文本…', explanation: '正在解释翻译语境…' }[selection.loadingStage ?? 'translation']}</span>
             <div className="weave-loading" aria-hidden="true"><i /><i /><i /></div>
-            <small>{settings.reasoning.selection === 'deep' ? '划词当前为深入思考，复杂内容可能需要更长时间' : `划词当前为${{ compatible: '兼容', fast: '快速', balanced: '均衡', deep: '深入' }[settings.reasoning.selection]}模式`}</small>
+            <small>{selectionRoute.reasoningMode === 'deep' ? '划词当前为深入思考，复杂内容可能需要更长时间' : `划词当前为${{ compatible: '兼容', fast: '快速', balanced: '均衡', deep: '深入' }[selectionRoute.reasoningMode]}模式`}</small>
           </div>}
           {selection.result && <RichTranslation className="weave-selection-result" text={selection.result} math={selection.unit.math} />}
           {selection.explanation && <RichTranslation className="weave-explanation" text={selection.explanation} math={selection.unit.math} />}
           {selection.error && <p className="weave-notice">{selection.error}</p>}
-          <label className="weave-selection-mode"><span>划词思考</span><select value={settings.reasoning.selection} onChange={(event) => void persistSettings({ reasoning: { ...settings.reasoning, selection: event.target.value as WeaveSettings['reasoning']['selection'] } })}><option value="compatible">兼容</option><option value="fast">快速</option><option value="balanced">均衡</option><option value="deep">深入</option></select></label>
+          <label className="weave-selection-mode"><span>划词模型</span><select value={effectiveProfileId('selectionTranslation')} onChange={(event) => void setTabModel('selectionTranslation', event.target.value)}>{enabledChatModels.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}</select></label>
+          <label className="weave-selection-mode"><span>划词思考</span><select value={selectionRoute.reasoningMode} onChange={(event) => void saveTaskRoute('selectionTranslation', { reasoningMode: event.target.value as WeaveSettings['taskRoutes']['selectionTranslation']['reasoningMode'] })}><option value="compatible">兼容</option><option value="fast">快速</option><option value="balanced">均衡</option><option value="deep">深入</option></select></label>
           <div className="weave-card-actions">
             {selection.result && !selection.explanation && <button onClick={() => void explainSelection()}>解释语境</button>}
             {selection.error && <button onClick={() => void translateSelection()}>重试</button>}

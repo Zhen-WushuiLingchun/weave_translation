@@ -10,9 +10,12 @@ function Popup(): React.ReactElement {
   useEffect(() => {
     void sendRuntimeMessage<WeaveSettings>({ type: 'GET_SETTINGS' }).then(setSettings);
   }, []);
+  const route = settings?.taskRoutes.pageTranslation;
+  const model = settings?.models.find((candidate) => candidate.id === route?.profileId);
+  const connection = settings?.connections.find((candidate) => candidate.id === model?.connectionId);
   return <main className="popup">
     <header className="brand"><span className="brand-mark">织</span><span className="brand-copy"><strong>织语</strong><small>WEAVE TRANSLATE</small></span></header>
-    <p className="provider"><i className={settings?.provider.hasApiKey ? 'ready' : ''}/><span>{settings?.provider.label ?? '正在读取…'}</span><b>{settings?.provider.model}</b></p>
+    <p className="provider"><i className={connection?.hasApiKey ? 'ready' : ''}/><span>{model?.label ?? '正在读取…'}</span><b>{model?.model}</b></p>
     <div className="popup-ready"><span aria-hidden="true">✓</span><p><strong>普通网页已自动启用</strong><small>点击页面侧边把手打开织语</small></p></div>
     <button className="button-primary" onClick={() => void sendRuntimeMessage({ type: 'OPEN_OPTIONS' })}>打开完整设置</button>
     <footer><span>仅用户操作时调用模型</span><button onClick={() => void sendRuntimeMessage({ type: 'OPEN_OPTIONS' })}>设置 →</button></footer>
