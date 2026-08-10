@@ -3,9 +3,9 @@ import { DEFAULT_SETTINGS } from '../src/lib/defaults';
 import { normalizeSitePattern, pageSettingsForSite, resolveSiteRule, sitePatternMatches } from '../src/lib/site-rules';
 
 describe('site translation profiles', () => {
-  it('treats an exact host as all paths on that host', () => {
+  it('treats a domain as all paths and subdomains', () => {
     expect(sitePatternMatches('example.com', new URL('https://example.com/papers/42?q=weave').hostname)).toBe(true);
-    expect(sitePatternMatches('example.com', 'docs.example.com')).toBe(false);
+    expect(sitePatternMatches('example.com', 'docs.example.com')).toBe(true);
   });
 
   it('matches an apex and every subdomain with a wildcard', () => {

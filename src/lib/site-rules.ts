@@ -17,7 +17,7 @@ export function sitePatternMatches(pattern: string, hostname: string): boolean {
     const base = normalized.slice(2);
     return host === base || host.endsWith(`.${base}`);
   }
-  return host === normalized;
+  return host === normalized || host.endsWith(`.${normalized}`);
 }
 
 function specificity(pattern: string): number {
@@ -41,6 +41,19 @@ export function pageSettingsForSite(settings: WeaveSettings, rule: ResolvedSiteR
     reasoning: {
       ...settings.reasoning,
       page: rule.reasoningMode ?? settings.reasoning.page,
+    },
+    taskRoutes: {
+      ...settings.taskRoutes,
+      pageContext: {
+        ...settings.taskRoutes.pageContext,
+        profileId: rule.pageContextProfileId ?? settings.taskRoutes.pageContext.profileId,
+        reasoningMode: rule.reasoningMode ?? settings.taskRoutes.pageContext.reasoningMode,
+      },
+      pageTranslation: {
+        ...settings.taskRoutes.pageTranslation,
+        profileId: rule.pageProfileId ?? settings.taskRoutes.pageTranslation.profileId,
+        reasoningMode: rule.reasoningMode ?? settings.taskRoutes.pageTranslation.reasoningMode,
+      },
     },
     dock: {
       ...settings.dock,
