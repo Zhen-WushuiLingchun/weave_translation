@@ -3,14 +3,14 @@
   <h1>织语 Weave</h1>
   <p>使用自己的 AI 模型，在网页、划词与视频字幕中获得有上下文的自然翻译。</p>
   <p>
-    <img alt="Version 0.3.0" src="https://img.shields.io/badge/version-0.3.0-E85D4A">
+    <img alt="Version 0.4.0" src="https://img.shields.io/badge/version-0.4.0-E85D4A">
     <img alt="Chrome Manifest V3" src="https://img.shields.io/badge/Chrome-Manifest%20V3-2A7F78">
     <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-7-3178C6">
     <img alt="Apache 2.0" src="https://img.shields.io/badge/license-Apache--2.0-111820">
   </p>
 </div>
 
-织语是一款本地优先的 Chrome 智能翻译扩展。它不要求注册账户，也没有会员或自建中转服务器；你可以直接连接 DeepSeek，或任意兼容 OpenAI Chat Completions 的云端及本地模型服务。
+织语是一款本地优先的 Chrome 智能翻译扩展。它不要求注册账户，也没有会员或自建中转服务器；你可以配置多个 DeepSeek 或 OpenAI-compatible 云端及本地模型，并为不同任务和网站独立选择。
 
 > 当前项目处于早期测试阶段。建议先在非敏感网页中试用，并留意模型服务商产生的 API 费用。
 
@@ -49,7 +49,9 @@
 - 在独立字幕层中显示原文 + 译文或仅译文，并可调节字号、底部位置和背景透明度。
 - 播放时预取当前位置之后的字幕；拖动进度条后重新调度附近内容。
 - YouTube 若尚未发现字幕轨，需要先开启一次播放器原生 CC。
-- 当前视频没有字幕时会明确提示；首版不包含 ASR 语音识别。
+- 当前视频没有字幕时，可由用户点击“生成并翻译字幕”，边播放边调用云端或本机 OpenAI-compatible Audio Transcriptions 服务。
+- ASR 使用约 3–15 秒的语音活动分片、重叠去重与时间映射；暂停和拖动进度后会重新同步。
+- 标签页音频权限只在用户启动 ASR 时申请，原始音频分片处理后立即释放，不持久保存。
 
 ### 侧边坞
 
@@ -59,9 +61,11 @@
 - 使用独立 Shadow DOM、原生顶层栈与最高层级保护，尽量避免被网页弹层或全屏容器遮挡。
 - 可直接切换翻译模式、目标语言、思考强度、主题与本站自动翻译，也可以暂停或隐藏当前站点。
 
-## 自带 API 与思考强度
+## 多模型、任务路由与思考强度
 
-织语提供 DeepSeek 预设，也接受完整的 OpenAI-compatible Chat Completions 地址、模型名称和可为空的 Bearer Key。远程接口必须使用 HTTPS；`localhost`、`127.0.0.1` 和 `[::1]` 可使用 HTTP。
+织语将配置拆分为“服务连接”和“模型配置”。一个连接保存接口与密钥，多个模型可以复用该连接；模型会声明聊天、工具调用、语音识别和推理强度能力。远程接口必须使用 HTTPS；`localhost`、`127.0.0.1` 和 `[::1]` 可使用 HTTP。
+
+任务路由可分别设置网页摘要、整页翻译、划词翻译、语境解释、视频摘要、字幕翻译和语音识别。网页侧边坞中的临时切换只影响当前标签页，优先级为：当前标签页临时模型 → 站点档案模型 → 任务默认模型。
 
 网页、划词和字幕可以分别选择思考强度：
 
@@ -74,14 +78,22 @@
 
 不同提供商对推理参数的支持并不完全一致。如果接口返回参数错误，请改用“兼容”模式；具体可用模型与计费规则以你的模型服务商为准。
 
+## 专业术语库
+
+- 词典完全保存在本机 IndexedDB，可按全局、主域名及精确主机名限定范围。
+- 翻译前先进行确定性原词/别名匹配，只把当前文本实际命中的紧凑词条发送给模型。
+- “混合检索”允许支持工具调用的模型执行一次 `lookup_glossary`；完整词典不会进入模型上下文。
+- 模型发现新术语时只能添加到“待确认”列表，由用户确认后才会启用。
+- 设置页支持 CSV/JSON 导入、冲突确认及 CSV/JSON 导出。
+
 ## 站点翻译档案
 
 你可以为不同网站保存独立规则，覆盖自动翻译、页面模式、目标语言、网页思考强度和译文主题。
 
 | 规则 | 匹配范围 |
 | --- | --- |
-| `example.com` | `example.com` 下的所有路径，例如 `example.com/a/b`；不匹配子域名 |
-| `*.example.com` | `example.com` 本身及任意层级子域名，例如 `docs.example.com` |
+| `example.com` | 主域名、全部路径及任意层级子域名，例如 `docs.example.com/a/b` |
+| `docs.example.com` | `docs.example.com` 及其更深层子域名；比 `example.com` 更具体 |
 
 当多条规则同时命中时，更具体的精确域名规则会覆盖通配规则。仅显示侧边坞不会产生模型请求；只有手动触发翻译或命中的站点档案启用了自动翻译时，才会发送经过过滤的文本。
 
@@ -89,7 +101,7 @@
 
 ### 从源码构建
 
-环境要求：Chrome 114+、Node.js 20+、pnpm 11。
+环境要求：Chrome 116+、Node.js 20+、pnpm 11。
 
 ```powershell
 git clone https://github.com/Zhen-WushuiLingchun/weave_translation.git
@@ -120,22 +132,25 @@ pnpm zip
 
 ## 首次配置
 
-1. 安装后打开织语设置页，在“模型服务”中选择 DeepSeek 或 OpenAI-compatible。
-2. 填写完整 Chat Completions 地址、模型名称和 API Key；本地无鉴权服务可以留空 Key。
-3. 选择持久保存或仅本次浏览器会话保存，然后点击“保存并测试”。
-4. 分别为网页、划词和视频字幕设置思考强度。
+1. 安装后打开“服务与模型”，添加 DeepSeek 或 OpenAI-compatible 服务连接。
+2. 填写完整 Chat Completions 地址与 API Key；本地无鉴权服务可以留空 Key。
+3. 为连接新增一个或多个模型，并勾选该模型实际支持的能力。
+4. 在“任务路由”中为网页、划词、解释、字幕和 ASR 分配模型与思考强度。
 5. 打开任意普通网页，点击页面边缘的“织”字把手开始使用。
+
+无字幕视频需要额外配置完整的 `/audio/transcriptions` 地址和具备 `audioTranscription` 能力的模型。使用本机 faster-whisper 的方法见 [本地 ASR 配置](docs/local-asr.md)。
 
 默认源语言为自动识别，目标语言为简体中文；目标语言可改为繁体中文、英语、日语或韩语。
 
 ## 数据与安全边界
 
-- 持久 API Key 保存在 `chrome.storage.local`，会话 Key 保存在 `chrome.storage.session`，并限制为可信扩展上下文读取。
+- 每个连接的持久 API Key 按独立 `secretRef` 保存在 `chrome.storage.local`，会话 Key 保存在 `chrome.storage.session`，并限制为可信扩展上下文读取。
 - 内容脚本只会收到“是否已配置密钥”的状态，不会收到密钥明文。
 - 日志、翻译缓存键和配置导出不包含 API Key。
 - Chrome 扩展本地存储不是操作系统级加密保险箱；共享账户或高风险设备建议使用会话模式。
 - 扩展不收集遥测，不上传浏览历史，不加载远程可执行代码。
 - 安装时申请普通网页访问权限，用于显示侧边坞和在用户触发后读取可翻译文本；Chrome 内部页与 Chrome Web Store 等受保护页面无法注入。
+- `tabCapture` 是可选权限，只在用户点击无字幕生成时申请；音频进入内存分片后发送到用户配置的转录服务，不写入磁盘或 IndexedDB。
 - 发送给模型的内容取决于所选功能：整页翻译会发送摘要样本和文本批次，划词会发送选中内容及邻近语境，字幕翻译会发送视频标题、字幕样本和当前时间附近的句子。
 
 更完整的数据流说明见 [SECURITY.md](SECURITY.md)。请勿在 Issue、日志或截图中公开真实 API Key 与敏感网页内容。
@@ -155,17 +170,17 @@ pnpm test:e2e
 pnpm test
 ```
 
-当前共有 43 项 Vitest 测试，覆盖上下文窗口、DOM 排除、MathML/KaTeX/MathJax 提取、LaTeX 占位契约、块公式上下文、受限 Markdown 渲染、字幕断句与时间映射、站点规则、主题识别、悬浮层位置、模型响应映射、重试和密钥存储迁移。Playwright 使用持久化 Chromium 环境，通过本地模拟模型服务验证扩展加载、公式元数据确实到达模型、块公式不生成重复译文以及完整页面翻译链路。
+当前共有 56 项 Vitest 测试，覆盖上下文与 DOM、公式保护、字幕断句、多模型路由、v1→v2 迁移、密钥隔离、词典检索、工具调用、PCM/WAV、VAD、重叠去重、转录响应、重试与日志边界。Playwright 使用持久化 Chromium 验证扩展安装、Manifest 权限、模型配置、站点规则、公式、侧边坞、整页翻译和划词链路。
 
 ## 项目结构
 
 ```text
 src/
-├─ background/             # 模型调用、重试、缓存与密钥存储
+├─ background/             # 模型/ASR 调用、路由、术语库、缓存与密钥
 ├─ content/                # 上下文、网页翻译、悬浮层与视频控制
 │  └─ subtitles/           # YouTube/Bilibili 适配与字幕断句
-├─ entrypoints/            # MV3 后台、内容脚本、设置、引导与弹窗
-├─ lib/                    # 数据契约、默认值、推理和站点规则
+├─ entrypoints/            # MV3 后台、内容脚本、Offscreen、设置与弹窗
+├─ lib/                    # 数据契约、音频、词典、默认值与站点规则
 └─ ui/                     # 共享视觉基础
 tests/                     # Vitest 与 Playwright 测试
 public/                    # 本地图标资源
@@ -175,9 +190,11 @@ public/                    # 本地图标资源
 
 ## 当前边界
 
-首版不包含：
+当前版本不包含：
 
-- 无字幕视频的 ASR
+- 任意 HTML5 视频或会议标签页的通用 ASR（当前正式支持 YouTube/Bilibili）
+- 下载完整媒体并预先识别尚未播放的音频
+- 捆绑的 Windows faster-whisper 服务程序
 - OCR 图片翻译
 - PDF / 电子书专用解析
 - 云同步、用户账户或团队术语库

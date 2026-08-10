@@ -37,7 +37,7 @@ try {
 
   console.log(JSON.stringify({ step: 'options' }));
   await page.goto(`chrome-extension://${extensionId}/options.html`);
-  await page.getByRole('heading', { name: '模型服务' }).waitFor();
+  await page.getByRole('heading', { name: '服务与模型' }).waitFor();
   await page.screenshot({ path: path.join(visualDirectory, 'weave-options.png'), fullPage: true });
 
   const server = http.createServer((_request, response) => {

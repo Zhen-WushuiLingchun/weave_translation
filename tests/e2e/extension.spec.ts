@@ -50,9 +50,11 @@ test('loads the unpacked extension and translates a real page through a mock pro
   const extensionPath = fs.mkdtempSync(path.join(os.tmpdir(), 'weave-e2e-extension-'));
   copyDirectory(builtExtensionPath, extensionPath);
   const manifestPath = path.join(extensionPath, 'manifest.json');
-  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as { host_permissions?: string[]; optional_host_permissions?: string[]; content_scripts?: unknown[] };
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as { host_permissions?: string[]; optional_host_permissions?: string[]; optional_permissions?: string[]; permissions?: string[]; content_scripts?: unknown[] };
   expect(manifest.host_permissions).toEqual(['http://*/*', 'https://*/*']);
   expect(manifest.optional_host_permissions).toBeUndefined();
+  expect(manifest.optional_permissions).toContain('tabCapture');
+  expect(manifest.permissions).toContain('offscreen');
   expect(manifest.content_scripts?.length).toBeGreaterThan(0);
 
   const installedRoot = path.join(process.env.LOCALAPPDATA ?? '', 'ms-playwright');
@@ -127,19 +129,31 @@ test('loads the unpacked extension and translates a real page through a mock pro
     if (visualDirectory) await page.screenshot({ path: path.join(visualDirectory, 'weave-onboarding.png'), fullPage: true });
 
     await page.goto(`chrome-extension://${extensionId}/options.html`);
-    await expect(page.getByRole('heading', { name: '模型服务' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '服务与模型' })).toBeVisible();
     await expect(page.getByText('Chat Completions 完整地址')).toBeVisible();
     await page.evaluate(async (endpoint) => {
       const runtime = (globalThis as unknown as {
         chrome: { runtime: { sendMessage(message: unknown): Promise<unknown> } };
       }).chrome.runtime;
+      const loaded = await runtime.sendMessage({ type: 'GET_SETTINGS' }) as { data: {
+        taskRoutes: Record<string, { profileId: string; reasoningMode: string; glossaryMode: string }>;
+      } };
+      const taskRoutes = Object.fromEntries(Object.entries(loaded.data.taskRoutes).map(([key, route]) => [key, {
+        ...route, profileId: key === 'transcription' ? '' : 'e2e-mock',
+      }]));
       await runtime.sendMessage({
         type: 'SAVE_SETTINGS',
         patch: {
-          provider: {
-            id: 'e2e-mock', label: 'E2E Mock', kind: 'openai-compatible', endpoint,
-            model: 'mock-translator', reasoningMode: 'compatible', targetLanguage: 'zh-CN', keyPersistence: 'session', hasApiKey: false,
-          },
+          connections: [{
+            id: 'e2e', label: 'E2E Mock', kind: 'openai-compatible', chatEndpoint: endpoint,
+            transcriptionEndpoint: '', secretRef: 'e2e', keyPersistence: 'session', hasApiKey: false,
+            transcriptionResponseMode: 'verbose_json',
+          }],
+          models: [{
+            id: 'e2e-mock', label: 'E2E Mock', connectionId: 'e2e', model: 'mock-translator',
+            capabilities: ['chat', 'reasoningEffort'], enabled: true,
+          }],
+          taskRoutes,
           siteRules: { '127.0.0.1': { reasoningMode: 'deep' } },
         },
       });
@@ -147,7 +161,7 @@ test('loads the unpacked extension and translates a real page through a mock pro
     if (visualDirectory) await page.screenshot({ path: path.join(visualDirectory, 'weave-options.png'), fullPage: true });
     await page.getByRole('button', { name: /网页翻译/ }).click();
     await expect(page.getByRole('heading', { name: '站点翻译档案' })).toBeVisible();
-    await expect(page.getByText(/example\.com\/\*/)).toBeVisible();
+    await expect(page.getByText(/覆盖全部路径和所有层级子域名/)).toBeVisible();
     if (visualDirectory) await page.screenshot({ path: path.join(visualDirectory, 'weave-site-profiles.png'), fullPage: true });
 
     await page.goto(`http://127.0.0.1:${address.port}/dark`);

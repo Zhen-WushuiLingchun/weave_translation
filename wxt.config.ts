@@ -10,9 +10,10 @@ export default defineConfig({
     name: '织语 Weave',
     short_name: '织语',
     description: '用自己的模型，在网页与视频中获得有上下文的自然翻译。',
-    version: '0.3.0',
-    minimum_chrome_version: '114',
-    permissions: ['storage', 'scripting'],
+    version: '0.4.0',
+    minimum_chrome_version: '116',
+    permissions: ['storage', 'scripting', 'offscreen'],
+    optional_permissions: ['tabCapture'],
     host_permissions: ['http://*/*', 'https://*/*'],
     action: {
       default_title: '织语 Weave',

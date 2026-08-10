@@ -25,7 +25,14 @@ describe('local glossary retrieval', () => {
     const result = matchGlossaryEntries(entries, 'The event horizon follows this metric in the universe.', {
       hostname: 'docs.example.com', sourceLanguage: 'en', targetLanguage: 'zh-CN',
     });
-    expect(result.map((item) => item.id)).toEqual(['long', 'short']);
+    expect(result.map((item) => item.id)).toEqual(['long']);
     expect(glossaryDigest(result)).toBe(glossaryDigest([...result].reverse()));
+  });
+
+  it('does not match a Latin term inside another word', () => {
+    const result = matchGlossaryEntries([entry({ source: 'cat', preferred: '猫', aliases: [] })], 'educational categories', {
+      hostname: 'example.com', sourceLanguage: 'en', targetLanguage: 'zh-CN',
+    });
+    expect(result).toEqual([]);
   });
 });
