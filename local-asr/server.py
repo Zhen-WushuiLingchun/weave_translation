@@ -30,6 +30,7 @@ FASTER_WHISPER_SMALL = Path(
 )
 OV_CACHE = Path(os.environ.get("WEAVE_ASR_OV_CACHE", HOME / "cache" / "openvino"))
 ENABLE_NPU = os.environ.get("WEAVE_ASR_ENABLE_NPU", "0") == "1"
+DEFAULT_MODEL = os.environ.get("WEAVE_ASR_DEFAULT_MODEL", "faster-whisper-small-cuda").strip()
 
 
 @dataclass(frozen=True)
@@ -81,6 +82,11 @@ MODEL_SPECS = {
     spec.id: spec
     for spec in _MODEL_LIST
 }
+if DEFAULT_MODEL not in MODEL_SPECS:
+    raise RuntimeError(
+        f"Unknown WEAVE_ASR_DEFAULT_MODEL '{DEFAULT_MODEL}'. "
+        f"Available models: {', '.join(MODEL_SPECS)}"
+    )
 
 
 app = FastAPI(title="Weave Local ASR", version="1.0.0")
@@ -260,6 +266,7 @@ async def health() -> dict[str, Any]:
         "service": app.title,
         "version": app.version,
         "openvino_devices": _available_openvino_devices(),
+        "default_model": DEFAULT_MODEL,
         "loaded_models": sorted(_pipelines),
         "models": [spec.id for spec in MODEL_SPECS.values()],
     }
@@ -286,7 +293,7 @@ async def models() -> dict[str, Any]:
 @app.post("/v1/audio/transcriptions", response_model=None)
 async def transcriptions(
     file: UploadFile = File(...),
-    model: str = Form("faster-whisper-small-cuda"),
+    model: str = Form(DEFAULT_MODEL),
     language: str | None = Form(None),
     response_format: str = Form("verbose_json"),
     prompt: str = Form(""),

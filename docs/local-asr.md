@@ -12,7 +12,21 @@
 .\local-asr\install.ps1 -RegisterStartup
 ```
 
-脚本会在 `%LOCALAPPDATA%\WeaveASR` 创建独立虚拟环境，安装固定版本依赖，下载
+安装目录和默认设备都可以显式指定。例如把运行环境与模型放到 D 盘，并默认使用
+Intel 核显：
+
+```powershell
+.\local-asr\install.ps1 `
+  -InstallRoot 'D:\WeaveASR' `
+  -DefaultModel 'openvino-whisper-base-int8-gpu' `
+  -RegisterStartup
+```
+
+`DefaultModel` 只决定请求未填写 `model` 时使用哪个后端；织语中的语音识别任务仍应
+选择同一个模型标识。需要保留 NVIDIA 显存给其他任务时，推荐使用上述 Intel 核显配置。
+
+脚本默认在 `%LOCALAPPDATA%\WeaveASR` 创建独立虚拟环境，也可以使用 `InstallRoot`
+选择其他磁盘。它会安装固定版本依赖，下载
 multilingual Whisper 模型，并使用当前用户的 `HKCU\...\Run` 项实现登录后启动。
 不需要管理员权限，也不会修改系统 Python。包含 CUDA/OpenVINO 运行库、模型与编译缓存后，完整安装通常占用约 4–5 GB。
 
@@ -28,14 +42,14 @@ http://127.0.0.1:8765/v1/audio/transcriptions
 Invoke-RestMethod http://127.0.0.1:8765/health | ConvertTo-Json -Depth 4
 ```
 
-日志位于 `%LOCALAPPDATA%\WeaveASR\logs`。服务最大接受 10 MiB 的单个音频分片，
+日志位于安装目录的 `logs` 子目录。服务最大接受 10 MiB 的单个音频分片，
 不会持久保存收到的音频。
 
 ## 可选模型与设备
 
 | 模型标识 | 后端 | 用途 |
 | --- | --- | --- |
-| `faster-whisper-small-cuda` | NVIDIA CUDA FP16 | 默认；准确率与延迟较均衡 |
+| `faster-whisper-small-cuda` | NVIDIA CUDA FP16 | 默认配置；准确率与延迟较均衡 |
 | `openvino-whisper-base-int8-gpu` | Intel 核显 `GPU.0` | 低功耗核显模式 |
 | `openvino-whisper-base-int8-cpu` | Intel CPU INT8 | 稳定回退 |
 
@@ -49,12 +63,13 @@ OpenVINO 官方支持 Whisper 在 NPU 上运行，但 NPU 驱动、模型精度�
 设备枚举可用下列命令检查：
 
 ```powershell
+$asrRoot = 'D:\WeaveASR' # 按实际安装位置修改
 @'
 import openvino as ov
 core = ov.Core()
 for device in core.available_devices:
     print(device, core.get_property(device, "FULL_DEVICE_NAME"))
-'@ | & "$env:LOCALAPPDATA\WeaveASR\.venv\Scripts\python.exe" -
+'@ | & "$asrRoot\.venv\Scripts\python.exe" -
 ```
 
 ## 在织语中配置

@@ -1,6 +1,8 @@
 param(
     [string]$InstallRoot = "$env:LOCALAPPDATA\WeaveASR",
-    [int]$Port = 8765
+    [int]$Port = 8765,
+    [ValidateSet('faster-whisper-small-cuda', 'openvino-whisper-base-int8-gpu', 'openvino-whisper-base-int8-cpu')]
+    [string]$DefaultModel = 'faster-whisper-small-cuda'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -34,6 +36,7 @@ if ($listener) {
 
 New-Item -ItemType Directory -Path $logRoot -Force | Out-Null
 $env:WEAVE_ASR_HOME = $InstallRoot
+$env:WEAVE_ASR_DEFAULT_MODEL = $DefaultModel
 $env:PYTHONUTF8 = '1'
 $env:PYTHONIOENCODING = 'utf-8'
 
