@@ -14,7 +14,7 @@
 
 脚本会在 `%LOCALAPPDATA%\WeaveASR` 创建独立虚拟环境，安装固定版本依赖，下载
 multilingual Whisper 模型，并使用当前用户的 `HKCU\...\Run` 项实现登录后启动。
-不需要管理员权限，也不会修改系统 Python。完整安装通常占用约 3–4 GB。
+不需要管理员权限，也不会修改系统 Python。包含 CUDA/OpenVINO 运行库、模型与编译缓存后，完整安装通常占用约 4–5 GB。
 
 安装后的接口：
 
