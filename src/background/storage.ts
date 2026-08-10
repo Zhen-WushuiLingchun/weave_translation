@@ -198,6 +198,14 @@ export async function setApiKey(secretRef: string, apiKey: string, persistence: 
   else delete selected[secretRef];
   delete other[secretRef];
   await Promise.all([writeSecrets(persistence, selected), writeSecrets(otherPersistence, other)]);
+  const settings = await ensureV2Settings();
+  if (settings.connections.some((connection) => connection.secretRef === secretRef && connection.keyPersistence !== persistence)) {
+    const next = {
+      ...settings,
+      connections: settings.connections.map((connection) => connection.secretRef === secretRef ? { ...connection, keyPersistence: persistence } : connection),
+    };
+    await browser.storage.local.set({ [SETTINGS_V2_KEY]: storedSettings(next) });
+  }
 }
 
 export async function getApiKey(secretRef: string, persistence: SecretPersistence = 'local'): Promise<string> {

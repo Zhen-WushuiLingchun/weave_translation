@@ -301,7 +301,7 @@ export type RuntimeRequest =
   | { type: 'GLOSSARY_COLLECTIONS' }
   | { type: 'GLOSSARY_PUT_COLLECTION'; collection: GlossaryCollection }
   | { type: 'GLOSSARY_DELETE_COLLECTION'; id: string }
-  | { type: 'ASR_START'; videoTime: number; language: string }
+  | { type: 'ASR_START'; videoTime: number; language: string; title: string }
   | { type: 'ASR_STOP' }
   | { type: 'ASR_SYNC'; videoTime: number; playbackRate: number; paused: boolean; seeked?: boolean }
   | { type: 'ASR_AUDIO_CHUNK'; sessionId: string; wavBase64: string; start: number; end: number }

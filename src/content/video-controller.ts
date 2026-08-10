@@ -1,4 +1,4 @@
-import type { ContextBrief, SubtitleSentence, TranslationResult, VideoSettings, WeaveSettings } from '../lib/contracts';
+import type { AsrStatusPayload, ContextBrief, SubtitleCue, SubtitleSentence, TranslationResult, VideoSettings, WeaveSettings } from '../lib/contracts';
 import { sendRuntimeMessage } from '../lib/message';
 import { loadBilibiliSubtitles, loadYoutubeSubtitles } from './subtitles/adapters';
 import { segmentCues, sentenceAt } from './subtitles/segmenter';
@@ -6,7 +6,8 @@ import { segmentCues, sentenceAt } from './subtitles/segmenter';
 export interface VideoStatus {
   supported: boolean;
   enabled: boolean;
-  state: 'idle' | 'loading' | 'ready' | 'error';
+  state: 'idle' | 'loading' | 'no-subtitles' | 'capturing' | 'transcribing' | 'ready' | 'error';
+  source?: 'site' | 'asr';
   message?: string;
 }
 
@@ -20,6 +21,8 @@ export class VideoController {
   private timer: number | undefined;
   private generation = 0;
   private context: ContextBrief | undefined;
+  private asrActive = false;
+  private lastAsrSync = 0;
 
   constructor(settings: WeaveSettings, private readonly onStatus: (status: VideoStatus) => void) {
     this.settings = settings;
@@ -43,7 +46,11 @@ export class VideoController {
       const result = location.hostname.includes('youtube.com') ? await loadYoutubeSubtitles() : await loadBilibiliSubtitles();
       if (generation !== this.generation) return;
       this.sentences = segmentCues(result.cues);
-      if (!this.sentences.length) throw new Error('当前视频暂无可用字幕。');
+      if (!this.sentences.length) {
+        this.disable(false);
+        this.onStatus({ supported: true, enabled: false, state: 'no-subtitles', message: '当前视频暂无可用字幕，可边播放边生成。' });
+        return;
+      }
       this.video = document.querySelector('video') ?? undefined;
       if (!this.video) throw new Error('暂未找到视频播放器。');
       this.mountOverlay();
@@ -53,7 +60,7 @@ export class VideoController {
         void this.prefetch();
       }, 240);
       this.video.addEventListener('seeked', this.onSeeked);
-      this.onStatus({ supported: true, enabled: true, state: 'ready' });
+      this.onStatus({ supported: true, enabled: true, state: 'ready', source: 'site' });
       await this.prefetch();
     } catch (error) {
       this.disable(false);
@@ -77,14 +84,73 @@ export class VideoController {
     this.translations.clear();
     this.pending.clear();
     this.context = undefined;
+    if (this.asrActive) void sendRuntimeMessage({ type: 'ASR_STOP' }).catch(() => undefined);
+    this.asrActive = false;
     if (emit) this.onStatus({ supported: this.supported, enabled: false, state: 'idle' });
   }
 
   private readonly onSeeked = () => {
     this.generation += 1;
     this.pending.clear();
+    if (this.asrActive && this.video) {
+      void sendRuntimeMessage({
+        type: 'ASR_SYNC', videoTime: this.video.currentTime, playbackRate: this.video.playbackRate,
+        paused: this.video.paused, seeked: true,
+      });
+    }
     void this.prefetch();
   };
+
+  async enableAsr(): Promise<void> {
+    if (!this.supported) return;
+    this.disable(false);
+    this.video = document.querySelector('video') ?? undefined;
+    if (!this.video) throw new Error('暂未找到视频播放器。');
+    this.mountOverlay();
+    this.asrActive = true;
+    this.timer = window.setInterval(() => {
+      this.renderCurrent();
+      void this.prefetch();
+      void this.syncAsr();
+    }, 240);
+    this.video.addEventListener('seeked', this.onSeeked);
+    this.onStatus({ supported: true, enabled: true, state: 'capturing', source: 'asr', message: '正在申请音频捕获权限…' });
+    try {
+      await sendRuntimeMessage({ type: 'ASR_START', videoTime: this.video.currentTime, language: this.settings.video.asrLanguage, title: document.title });
+    } catch (error) {
+      this.disable(false);
+      this.onStatus({ supported: true, enabled: false, state: 'error', source: 'asr', message: error instanceof Error ? error.message : '无法启动语音识别。' });
+      throw error;
+    }
+  }
+
+  acceptAsrUpdate(payload: AsrStatusPayload): void {
+    if (!this.asrActive) return;
+    if (payload.cues?.length) {
+      this.setAsrCues(payload.cues);
+      if (!this.context && this.sentences.length >= 3) void this.buildContext(document.title, this.settings.video.asrLanguage);
+      void this.prefetch();
+    }
+    const state = payload.state === 'synced' ? 'ready' : payload.state === 'transcribing' || payload.state === 'translating' ? 'transcribing' : payload.state === 'capturing' ? 'capturing' : payload.state;
+    this.onStatus({ supported: true, enabled: payload.state !== 'idle' && payload.state !== 'error', state, source: 'asr', message: payload.message });
+  }
+
+  private setAsrCues(cues: SubtitleCue[]): void {
+    const previousIds = new Set(this.sentences.map((sentence) => sentence.id));
+    this.sentences = segmentCues(cues);
+    if ([...previousIds].some((id) => !this.sentences.some((sentence) => sentence.id === id))) {
+      this.translations.clear();
+      this.pending.clear();
+    }
+  }
+
+  private async syncAsr(): Promise<void> {
+    if (!this.asrActive || !this.video || performance.now() - this.lastAsrSync < 900) return;
+    this.lastAsrSync = performance.now();
+    await sendRuntimeMessage({
+      type: 'ASR_SYNC', videoTime: this.video.currentTime, playbackRate: this.video.playbackRate, paused: this.video.paused,
+    }).catch(() => undefined);
+  }
 
   private mountOverlay(): void {
     this.overlay?.remove();
@@ -163,7 +229,7 @@ export class VideoController {
         if (item.text && !item.error) this.translations.set(item.id, item.text);
       });
     } catch (error) {
-      this.onStatus({ supported: true, enabled: true, state: 'error', message: error instanceof Error ? error.message : '字幕翻译失败。' });
+      this.onStatus({ supported: true, enabled: true, state: 'error', source: this.asrActive ? 'asr' : 'site', message: error instanceof Error ? error.message : '字幕翻译失败。' });
     } finally {
       candidates.forEach((sentence) => this.pending.delete(sentence.id));
       this.renderCurrent();
