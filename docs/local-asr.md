@@ -99,6 +99,11 @@ for device in core.available_devices:
 `Qwen3-ForcedAligner-0.6B` 生成相对于当前音频的时间戳，并把请求中的 `prompt`
 作为课程术语与上下文提示；织语再将时间戳映射到播放器时间轴。
 
+当服务默认模型为 Qwen3-ASR 时，旧客户端发送
+`faster-whisper-small-cuda` 或 `openvino-whisper-base-int8-gpu` 会兼容路由到当前
+Qwen3 默认模型。可用 `WEAVE_ASR_QWEN_DEFAULT_COMPAT_ALIASES` 调整或清空这一列表；
+响应中的 `model` 字段始终报告实际执行的 Qwen3 模型。
+
 ## 运行边界
 
 - 织语实时模式发送 16 kHz、单声道、16-bit PCM WAV，通常为 3–15 秒分片；

@@ -37,6 +37,14 @@ QWEN3_ASR_06B = os.environ.get("WEAVE_ASR_QWEN3_ASR_06B", "Qwen/Qwen3-ASR-0.6B")
 QWEN3_ALIGNER = os.environ.get(
     "WEAVE_ASR_QWEN3_ALIGNER", "Qwen/Qwen3-ForcedAligner-0.6B"
 )
+QWEN_DEFAULT_COMPAT_ALIASES = {
+    item.strip()
+    for item in os.environ.get(
+        "WEAVE_ASR_QWEN_DEFAULT_COMPAT_ALIASES",
+        "faster-whisper-small-cuda,openvino-whisper-base-int8-gpu",
+    ).split(",")
+    if item.strip()
+}
 
 
 @dataclass(frozen=True)
@@ -124,6 +132,14 @@ _pipelines: dict[str, Any] = {}
 _load_locks: dict[str, asyncio.Lock] = {}
 _inference_locks: dict[str, asyncio.Lock] = {}
 _dll_handles: list[Any] = []
+
+
+def _resolve_model_spec(requested_model: str) -> ModelSpec | None:
+    """Redirect known former defaults when this service defaults to Qwen3-ASR."""
+
+    if DEFAULT_MODEL.startswith("qwen3-asr-") and requested_model in QWEN_DEFAULT_COMPAT_ALIASES:
+        return MODEL_SPECS.get(DEFAULT_MODEL)
+    return MODEL_SPECS.get(requested_model)
 
 
 def _available_openvino_devices() -> list[str]:
@@ -407,7 +423,7 @@ async def transcriptions(
     response_format: str = Form("verbose_json"),
     prompt: str = Form(""),
 ) -> Response:
-    spec = MODEL_SPECS.get(model)
+    spec = _resolve_model_spec(model)
     if spec is None:
         raise HTTPException(status_code=400, detail=f"Unknown model '{model}'. Use GET /v1/models.")
     if response_format not in {"verbose_json", "json", "text"}:

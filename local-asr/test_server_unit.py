@@ -76,3 +76,10 @@ def test_timestamp_normalizer_accepts_milliseconds() -> None:
     assert server._timestamp_seconds(1_500, duration=2.0) == 1.5
     assert server._timestamp_seconds(-1, duration=2.0) == 0.0
     assert server._timestamp_seconds(9, duration=2.0) == 2.0
+
+
+def test_qwen_default_redirects_former_default_ids(monkeypatch) -> None:
+    monkeypatch.setattr(server, "DEFAULT_MODEL", "qwen3-asr-1.7b-cuda")
+    assert server._resolve_model_spec("openvino-whisper-base-int8-gpu").id == "qwen3-asr-1.7b-cuda"
+    assert server._resolve_model_spec("faster-whisper-small-cuda").id == "qwen3-asr-1.7b-cuda"
+    assert server._resolve_model_spec("qwen3-asr-0.6b-cuda").id == "qwen3-asr-0.6b-cuda"

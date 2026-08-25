@@ -15,6 +15,11 @@ const LOCAL_SECRETS_KEY = 'weave.secrets.local.v2';
 const SESSION_SECRETS_KEY = 'weave.secrets.session.v2';
 const LEGACY_LOCAL_KEY = 'weave.secret.local.v1';
 const LEGACY_SESSION_KEY = 'weave.secret.session.v1';
+const LOCAL_QWEN_ASR_MODEL = 'qwen3-asr-1.7b-cuda';
+const FORMER_LOCAL_ASR_MODELS = new Set([
+  'faster-whisper-small-cuda',
+  'openvino-whisper-base-int8-gpu',
+]);
 
 type LegacySettings = Partial<WeaveSettings> & { provider?: Partial<ProviderProfile> };
 type SecretMap = Record<string, string>;
@@ -98,6 +103,25 @@ export function mergeSettings(raw?: LegacySettings): WeaveSettings {
   };
 }
 
+export function migrateLocalAsrToQwen(settings: WeaveSettings): { settings: WeaveSettings; changed: boolean } {
+  const localConnectionIds = new Set(settings.connections
+    .filter((connection) => /^http:\/\/(?:127\.0\.0\.1|localhost):8765(?:\/|$)/i.test(connection.transcriptionEndpoint))
+    .map((connection) => connection.id));
+  let changed = false;
+  const models = settings.models.map((model) => {
+    if (!localConnectionIds.has(model.connectionId)
+      || !model.capabilities.includes('audioTranscription')
+      || !FORMER_LOCAL_ASR_MODELS.has(model.model)) return model;
+    changed = true;
+    return {
+      ...model,
+      label: 'Qwen3-ASR 1.7B (Local CUDA)',
+      model: LOCAL_QWEN_ASR_MODEL,
+    };
+  });
+  return changed ? { settings: { ...settings, models }, changed } : { settings, changed };
+}
+
 function storedSettings(settings: WeaveSettings): WeaveSettings {
   return {
     ...settings,
@@ -120,7 +144,13 @@ async function writeSecrets(persistence: SecretPersistence, secrets: SecretMap):
 async function ensureV2Settings(): Promise<WeaveSettings> {
   const values = await browser.storage.local.get([SETTINGS_V2_KEY, SETTINGS_V1_KEY, LEGACY_LOCAL_KEY]);
   const current = values[SETTINGS_V2_KEY] as LegacySettings | undefined;
-  if (current?.schemaVersion === 2) return mergeSettings(current);
+  if (current?.schemaVersion === 2) {
+    const migrated = migrateLocalAsrToQwen(mergeSettings(current));
+    if (migrated.changed) {
+      await browser.storage.local.set({ [SETTINGS_V2_KEY]: storedSettings(migrated.settings) });
+    }
+    return migrated.settings;
+  }
 
   const legacy = values[SETTINGS_V1_KEY] as LegacySettings | undefined;
   const migrated = mergeSettings(legacy);
