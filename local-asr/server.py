@@ -17,7 +17,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse, Response
 from scipy.signal import resample_poly
 
-
 HOME = Path(os.environ.get("WEAVE_ASR_HOME", Path.home() / "AppData" / "Local" / "WeaveASR"))
 MODEL_ROOT = Path(os.environ.get("WEAVE_ASR_MODEL_ROOT", HOME / "models"))
 OPENVINO_MODEL = Path(
@@ -152,7 +151,7 @@ def _release_pipeline_sync(pipeline: Any) -> None:
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
             torch.cuda.ipc_collect()
-    except Exception:
+    except (ImportError, RuntimeError):
         pass
 
 
