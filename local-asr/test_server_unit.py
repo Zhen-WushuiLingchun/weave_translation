@@ -83,3 +83,16 @@ def test_qwen_default_redirects_former_default_ids(monkeypatch) -> None:
     assert server._resolve_model_spec("openvino-whisper-base-int8-gpu").id == "qwen3-asr-1.7b-cuda"
     assert server._resolve_model_spec("faster-whisper-small-cuda").id == "qwen3-asr-1.7b-cuda"
     assert server._resolve_model_spec("qwen3-asr-0.6b-cuda").id == "qwen3-asr-0.6b-cuda"
+
+
+def test_release_pipeline_removes_cached_model(monkeypatch) -> None:
+    marker = object()
+    server._pipelines["qwen3-asr-1.7b-cuda"] = marker
+    monkeypatch.setattr(server, "DEFAULT_MODEL", "qwen3-asr-1.7b-cuda")
+
+    import asyncio
+
+    result = asyncio.run(server.unload())
+
+    assert result == {"status": "ok", "model": "qwen3-asr-1.7b-cuda", "unloaded": True}
+    assert "qwen3-asr-1.7b-cuda" not in server._pipelines

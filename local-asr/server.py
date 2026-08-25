@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import gc
 import io
 import os
 import sys
@@ -140,6 +141,19 @@ def _resolve_model_spec(requested_model: str) -> ModelSpec | None:
     if DEFAULT_MODEL.startswith("qwen3-asr-") and requested_model in QWEN_DEFAULT_COMPAT_ALIASES:
         return MODEL_SPECS.get(DEFAULT_MODEL)
     return MODEL_SPECS.get(requested_model)
+
+
+def _release_pipeline_sync(pipeline: Any) -> None:
+    del pipeline
+    gc.collect()
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.ipc_collect()
+    except Exception:
+        pass
 
 
 def _available_openvino_devices() -> list[str]:
@@ -413,6 +427,20 @@ async def models() -> dict[str, Any]:
             for spec in MODEL_SPECS.values()
         ],
     }
+
+
+@app.post("/admin/unload")
+async def unload(model: str | None = None) -> dict[str, Any]:
+    requested = model or DEFAULT_MODEL
+    spec = _resolve_model_spec(requested)
+    if spec is None:
+        raise HTTPException(status_code=400, detail=f"Unknown model '{requested}'.")
+    inference_lock = _inference_locks.setdefault(spec.id, asyncio.Lock())
+    async with inference_lock:
+        pipeline = _pipelines.pop(spec.id, None)
+        if pipeline is not None:
+            await asyncio.to_thread(_release_pipeline_sync, pipeline)
+    return {"status": "ok", "model": spec.id, "unloaded": pipeline is not None}
 
 
 @app.post("/v1/audio/transcriptions", response_model=None)

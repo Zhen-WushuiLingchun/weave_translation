@@ -104,6 +104,10 @@ for device in core.available_devices:
 Qwen3 默认模型。可用 `WEAVE_ASR_QWEN_DEFAULT_COMPAT_ALIASES` 调整或清空这一列表；
 响应中的 `model` 字段始终报告实际执行的 Qwen3 模型。
 
+整段课堂精修可在转录完成后调用仅限回环地址的 `POST /admin/unload` 释放
+Qwen CUDA 权重；服务进程继续在线，下一次转录会从本地缓存自动重新加载。这样可与
+同一张 16 GB GPU 上按阶段运行的本地音频多模态模型交接显存。
+
 ## 运行边界
 
 - 织语实时模式发送 16 kHz、单声道、16-bit PCM WAV，通常为 3–15 秒分片；
