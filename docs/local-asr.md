@@ -6,10 +6,22 @@
 
 ## 安装
 
-需要 Windows、Python 3.10+。在仓库根目录运行：
+需要 Windows、Python 3.10+；Qwen3-ASR 官方推荐独立的 Python 3.12 环境。在仓库根目录运行：
 
 ```powershell
 .\local-asr\install.ps1 -RegisterStartup
+```
+
+如果只旁路验证 Qwen3-ASR，不下载旧 Whisper/OpenVINO 模型，也不接管现有的
+8765 服务，可使用另一个端口：
+
+```powershell
+.\local-asr\install.ps1 `
+  -InstallRoot 'D:\WeaveASR-Qwen3' `
+  -Python 'C:\path\to\python3.12.exe' `
+  -Port 8766 `
+  -DefaultModel 'qwen3-asr-1.7b-cuda' `
+  -SkipLegacyModelDownload
 ```
 
 安装目录和默认设备都可以显式指定。例如把运行环境与模型放到 D 盘，并默认使用
@@ -26,9 +38,10 @@ Intel 核显：
 选择同一个模型标识。需要保留 NVIDIA 显存给其他任务时，推荐使用上述 Intel 核显配置。
 
 脚本默认在 `%LOCALAPPDATA%\WeaveASR` 创建独立虚拟环境，也可以使用 `InstallRoot`
-选择其他磁盘。它会安装固定版本依赖，下载
-multilingual Whisper 模型，并使用当前用户的 `HKCU\...\Run` 项实现登录后启动。
-不需要管理员权限，也不会修改系统 Python。包含 CUDA/OpenVINO 运行库、模型与编译缓存后，完整安装通常占用约 4–5 GB。
+选择其他磁盘。Qwen3-ASR 与强制对齐模型在首次请求时下载；未指定
+`SkipLegacyModelDownload` 时还会下载 multilingual Whisper/OpenVINO 模型。
+`RegisterStartup` 使用当前用户的 `HKCU\...\Run` 项实现登录后启动。
+安装不需要管理员权限，也不会修改系统 Python。
 
 安装后的接口：
 
@@ -42,14 +55,16 @@ http://127.0.0.1:8765/v1/audio/transcriptions
 Invoke-RestMethod http://127.0.0.1:8765/health | ConvertTo-Json -Depth 4
 ```
 
-日志位于安装目录的 `logs` 子目录。服务最大接受 10 MiB 的单个音频分片，
-不会持久保存收到的音频。
+日志位于安装目录的 `logs` 子目录。服务默认最大接受 512 MiB 的单个音频，
+可用 `WEAVE_ASR_MAX_UPLOAD_BYTES` 调整；服务不会持久保存收到的音频。
 
 ## 可选模型与设备
 
 | 模型标识 | 后端 | 用途 |
 | --- | --- | --- |
-| `faster-whisper-small-cuda` | NVIDIA CUDA FP16 | 默认配置；准确率与延迟较均衡 |
+| `qwen3-asr-1.7b-cuda` | NVIDIA CUDA BF16 | 默认高保真转录；支持中英文、上下文提示和强制对齐时间戳 |
+| `qwen3-asr-0.6b-cuda` | NVIDIA CUDA BF16 | 更低显存与更低延迟的 Qwen3 回退 |
+| `faster-whisper-small-cuda` | NVIDIA CUDA FP16 | 旧版实时分片兼容后端 |
 | `openvino-whisper-base-int8-gpu` | Intel 核显 `GPU.0` | 低功耗核显模式 |
 | `openvino-whisper-base-int8-cpu` | Intel CPU INT8 | 稳定回退 |
 
@@ -80,12 +95,14 @@ for device in core.available_devices:
 4. 在“任务路由”中把“语音识别”指向该模型。
 5. 先点击“测试语音连接”，再到 YouTube/Bilibili 无字幕视频中点击“生成字幕”。
 
-服务支持 `verbose_json`、`json` 和 `text` 三种响应格式。`verbose_json` 会返回相对于
-当前分片的 segment 时间戳，织语再将它映射到播放器时间轴。
+服务支持 `verbose_json`、`json` 和 `text` 三种响应格式。Qwen3-ASR 使用
+`Qwen3-ForcedAligner-0.6B` 生成相对于当前音频的时间戳，并把请求中的 `prompt`
+作为课程术语与上下文提示；织语再将时间戳映射到播放器时间轴。
 
 ## 运行边界
 
-- 织语发送的是 16 kHz、单声道、16-bit PCM WAV，通常为 3–15 秒分片。
+- 织语实时模式发送 16 kHz、单声道、16-bit PCM WAV，通常为 3–15 秒分片；
+  课程精修模式也可以发送合成后的完整录音。
 - CUDA/OpenVINO 模型在第一次请求时会编译或热身；应以第二次及后续请求衡量持续延迟。
 - CUDA 通常优先追求准确率和吞吐量；核显/NPU 更适合希望减少独显占用的场景。
 - NPU 推理返回空文本、重复标点或乱码时，应停用 NPU，并检查 Intel NPU 驱动与模型版本。

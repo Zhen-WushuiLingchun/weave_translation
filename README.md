@@ -138,7 +138,7 @@ pnpm zip
 4. 在“任务路由”中为网页、划词、解释、字幕和 ASR 分配模型与思考强度。
 5. 打开任意普通网页，点击页面边缘的“织”字把手开始使用。
 
-无字幕视频需要额外配置完整的 `/audio/transcriptions` 地址和具备 `audioTranscription` 能力的模型。仓库提供可选的 Windows 本地服务安装脚本，支持 NVIDIA CUDA、Intel 核显和 CPU；安装位置及默认设备均可配置。希望减少独显占用时，可将 `DefaultModel` 设为 `openvino-whisper-base-int8-gpu`，详见 [本地 ASR 配置](docs/local-asr.md)。
+无字幕视频需要额外配置完整的 `/audio/transcriptions` 地址和具备 `audioTranscription` 能力的模型。仓库提供可选的 Windows 本地服务安装脚本，默认使用支持中英文、上下文提示和时间戳的 Qwen3-ASR-1.7B，同时保留 NVIDIA Whisper、Intel 核显和 CPU 后端；安装位置、端口及默认设备均可配置。希望减少独显占用时，可将 `DefaultModel` 设为 `openvino-whisper-base-int8-gpu`，详见 [本地 ASR 配置](docs/local-asr.md)。
 
 默认源语言为自动识别，目标语言为简体中文；目标语言可改为繁体中文、英语、日语或韩语。
 

@@ -10,3 +10,4 @@ soundfile==0.13.1
 uvicorn==0.35.0
 faster-whisper==1.2.1
 nvidia-cudnn-cu12==9.14.0.64
+qwen-asr==0.0.6

@@ -1,9 +1,12 @@
 param(
     [string]$InstallRoot = "$env:LOCALAPPDATA\WeaveASR",
     [string]$Python = '',
+    [int]$Port = 8765,
     [switch]$RegisterStartup,
-    [ValidateSet('faster-whisper-small-cuda', 'openvino-whisper-base-int8-gpu', 'openvino-whisper-base-int8-cpu')]
-    [string]$DefaultModel = 'faster-whisper-small-cuda'
+    [switch]$SkipLegacyModelDownload,
+    [ValidateSet('qwen3-asr-1.7b-cuda', 'qwen3-asr-0.6b-cuda', 'faster-whisper-small-cuda', 'openvino-whisper-base-int8-gpu', 'openvino-whisper-base-int8-cpu')]
+    [string]$DefaultModel = 'qwen3-asr-1.7b-cuda',
+    [string]$TorchIndexUrl = 'https://download.pytorch.org/whl/cu130'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -19,7 +22,7 @@ if (-not $Python) {
         Select-Object -First 1
 }
 if (-not (Test-Path -LiteralPath $Python)) {
-    throw 'Python 3.10 or newer was not found under the current user profile. Pass -Python with an explicit python.exe path.'
+    throw 'Python 3.10 or newer was not found under the current user profile. Pass -Python with an explicit python.exe path. Python 3.12 is recommended for Qwen3-ASR.'
 }
 & $Python -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)"
 if ($LASTEXITCODE -ne 0) { throw 'Weave Local ASR requires Python 3.10 or newer.' }
@@ -34,19 +37,22 @@ if (-not (Test-Path -LiteralPath $venvPython)) {
     & $Python -m venv (Join-Path $InstallRoot '.venv')
 }
 
+& $venvPython -m pip install --disable-pip-version-check --upgrade torch --index-url $TorchIndexUrl
 & $venvPython -m pip install --disable-pip-version-check -r (Join-Path $InstallRoot 'requirements.txt')
 $env:WEAVE_ASR_HOME = $InstallRoot
-& $venvPython (Join-Path $appRoot 'download_openvino_model.py')
+if (-not $SkipLegacyModelDownload) {
+    & $venvPython (Join-Path $appRoot 'download_openvino_model.py')
+}
 
 if ($RegisterStartup) {
     $startScript = Join-Path $InstallRoot 'start.ps1'
     $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
-    $runCommand = "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$startScript`" -InstallRoot `"$InstallRoot`" -DefaultModel `"$DefaultModel`""
+    $runCommand = "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$startScript`" -InstallRoot `"$InstallRoot`" -Port $Port -DefaultModel `"$DefaultModel`""
     New-Item -Path $runKey -Force | Out-Null
     New-ItemProperty -Path $runKey -Name 'Weave Local ASR' -Value $runCommand -PropertyType String -Force | Out-Null
 }
 
-& (Join-Path $InstallRoot 'start.ps1') -InstallRoot $InstallRoot -DefaultModel $DefaultModel
+& (Join-Path $InstallRoot 'start.ps1') -InstallRoot $InstallRoot -Port $Port -DefaultModel $DefaultModel
 Write-Output "Weave ASR installed at $InstallRoot"
-Write-Output 'Endpoint: http://127.0.0.1:8765/v1/audio/transcriptions'
+Write-Output "Endpoint: http://127.0.0.1:$Port/v1/audio/transcriptions"
 Write-Output "Default model: $DefaultModel"

@@ -31,12 +31,18 @@ FASTER_WHISPER_SMALL = Path(
 OV_CACHE = Path(os.environ.get("WEAVE_ASR_OV_CACHE", HOME / "cache" / "openvino"))
 ENABLE_NPU = os.environ.get("WEAVE_ASR_ENABLE_NPU", "0") == "1"
 DEFAULT_MODEL = os.environ.get("WEAVE_ASR_DEFAULT_MODEL", "faster-whisper-small-cuda").strip()
+MAX_UPLOAD_BYTES = int(os.environ.get("WEAVE_ASR_MAX_UPLOAD_BYTES", str(512 * 1024 * 1024)))
+QWEN3_ASR_17B = os.environ.get("WEAVE_ASR_QWEN3_ASR_17B", "Qwen/Qwen3-ASR-1.7B")
+QWEN3_ASR_06B = os.environ.get("WEAVE_ASR_QWEN3_ASR_06B", "Qwen/Qwen3-ASR-0.6B")
+QWEN3_ALIGNER = os.environ.get(
+    "WEAVE_ASR_QWEN3_ALIGNER", "Qwen/Qwen3-ForcedAligner-0.6B"
+)
 
 
 @dataclass(frozen=True)
 class ModelSpec:
     id: str
-    backend: Literal["openvino", "faster-whisper"]
+    backend: Literal["openvino", "faster-whisper", "qwen3-asr"]
     device: str
     model_name: str
     compute_type: str = ""
@@ -44,6 +50,22 @@ class ModelSpec:
 
 
 _MODEL_LIST = [
+    ModelSpec(
+        "qwen3-asr-1.7b-cuda",
+        "qwen3-asr",
+        "cuda:0",
+        QWEN3_ASR_17B,
+        "bfloat16",
+        "Qwen3-ASR 1.7B with forced alignment; quality local default",
+    ),
+    ModelSpec(
+        "qwen3-asr-0.6b-cuda",
+        "qwen3-asr",
+        "cuda:0",
+        QWEN3_ASR_06B,
+        "bfloat16",
+        "Qwen3-ASR 0.6B with forced alignment; lower-memory fallback",
+    ),
     ModelSpec(
         "faster-whisper-small-cuda",
         "faster-whisper",
@@ -151,7 +173,45 @@ def _language_token(language: str | None) -> str | None:
     return f"<|{code}|>"
 
 
+def _qwen_language(language: str | None) -> str | None:
+    """Map common API language hints to Qwen3-ASR's canonical names."""
+
+    normalized = (language or "").strip().lower().replace("_", "-")
+    if not normalized or normalized in {"auto", "und"}:
+        return None
+    aliases = {
+        "zh": "Chinese",
+        "zh-cn": "Chinese",
+        "zh-tw": "Chinese",
+        "cmn": "Chinese",
+        "yue": "Cantonese",
+        "en": "English",
+        "en-us": "English",
+        "en-gb": "English",
+    }
+    return aliases.get(normalized, normalized.split("-", 1)[0])
+
+
 def _load_pipeline_sync(spec: ModelSpec) -> Any:
+    if spec.backend == "qwen3-asr":
+        import torch
+        from qwen_asr import Qwen3ASRModel
+
+        if not torch.cuda.is_available():
+            raise RuntimeError("Qwen3-ASR CUDA backend requested but CUDA is unavailable.")
+        return Qwen3ASRModel.from_pretrained(
+            spec.model_name,
+            dtype=torch.bfloat16,
+            device_map=spec.device,
+            max_inference_batch_size=1,
+            max_new_tokens=4096,
+            forced_aligner=QWEN3_ALIGNER,
+            forced_aligner_kwargs={
+                "dtype": torch.bfloat16,
+                "device_map": spec.device,
+            },
+        )
+
     if spec.backend == "openvino":
         model_path = OPENVINO_MODEL_FP16 if spec.model_name.endswith("fp16") else OPENVINO_MODEL
         if not model_path.joinpath("openvino_encoder_model.xml").exists():
@@ -259,6 +319,55 @@ def _faster_whisper_transcribe(
     return text, segments, getattr(info, "language", None)
 
 
+def _timestamp_seconds(value: Any, *, duration: float) -> float:
+    """Normalize aligner timestamp scalars, tolerating seconds or milliseconds."""
+
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    if number > max(60.0, duration * 10.0):
+        number /= 1000.0
+    return min(duration, max(0.0, number))
+
+
+def _qwen3_transcribe(
+    pipeline: Any,
+    audio: np.ndarray,
+    language: str | None,
+    prompt: str,
+) -> tuple[str, list[dict[str, Any]], str | None]:
+    duration = len(audio) / 16_000
+    kwargs: dict[str, Any] = {
+        "audio": (audio, 16_000),
+        "language": _qwen_language(language),
+        "return_time_stamps": True,
+    }
+    if prompt.strip():
+        kwargs["context"] = prompt.strip()[:4_000]
+    results = pipeline.transcribe(**kwargs)
+    if not results:
+        return "", [], language
+    result = results[0]
+    text = str(getattr(result, "text", "") or "").strip()
+    detected_language = str(getattr(result, "language", "") or "").strip() or language
+    segments: list[dict[str, Any]] = []
+    for index, stamp in enumerate(getattr(result, "time_stamps", None) or []):
+        start = _timestamp_seconds(getattr(stamp, "start_time", 0.0), duration=duration)
+        end = _timestamp_seconds(getattr(stamp, "end_time", start), duration=duration)
+        segments.append(
+            {
+                "id": index,
+                "start": start,
+                "end": max(start, end),
+                "text": str(getattr(stamp, "text", "") or "").strip(),
+            }
+        )
+    if text and not segments:
+        segments = [{"id": 0, "start": 0.0, "end": duration, "text": text}]
+    return text, segments, detected_language
+
+
 @app.get("/health")
 async def health() -> dict[str, Any]:
     return {
@@ -303,16 +412,24 @@ async def transcriptions(
         raise HTTPException(status_code=400, detail=f"Unknown model '{model}'. Use GET /v1/models.")
     if response_format not in {"verbose_json", "json", "text"}:
         raise HTTPException(status_code=400, detail="response_format must be verbose_json, json, or text.")
-    payload = await file.read()
-    if len(payload) > 10 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="Audio payload exceeds the 10 MiB local safety limit.")
+    payload = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(payload) > MAX_UPLOAD_BYTES:
+        limit_mib = MAX_UPLOAD_BYTES / (1024 * 1024)
+        raise HTTPException(
+            status_code=413,
+            detail=f"Audio payload exceeds the {limit_mib:g} MiB local safety limit.",
+        )
     audio, duration = await asyncio.to_thread(_decode_audio, payload)
     pipeline = await _get_pipeline(spec)
     inference_lock = _inference_locks.setdefault(spec.id, asyncio.Lock())
     started = time.perf_counter()
     async with inference_lock:
         try:
-            if spec.backend == "openvino":
+            if spec.backend == "qwen3-asr":
+                text, segments, detected_language = await asyncio.to_thread(
+                    _qwen3_transcribe, pipeline, audio, language, prompt
+                )
+            elif spec.backend == "openvino":
                 text, segments, detected_language = await asyncio.to_thread(
                     _openvino_transcribe, pipeline, audio, language, prompt
                 )

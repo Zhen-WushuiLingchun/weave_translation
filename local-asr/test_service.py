@@ -28,7 +28,7 @@ def multipart(audio: Path, model: str) -> tuple[bytes, str]:
 
 parser = argparse.ArgumentParser()
 parser.add_argument("audio", type=Path)
-parser.add_argument("--model", default="faster-whisper-small-cuda")
+parser.add_argument("--model", default="qwen3-asr-1.7b-cuda")
 parser.add_argument("--url", default="http://127.0.0.1:8765/v1/audio/transcriptions")
 args = parser.parse_args()
 
