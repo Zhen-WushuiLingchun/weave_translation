@@ -1,6 +1,7 @@
 param(
     [string]$InstallRoot = "$env:LOCALAPPDATA\WeaveASR",
     [int]$Port = 8765,
+    [double]$IdleUnloadSeconds = 120,
     [ValidateSet('qwen3-asr-1.7b-cuda', 'qwen3-asr-0.6b-cuda', 'faster-whisper-small-cuda', 'openvino-whisper-base-int8-gpu', 'openvino-whisper-base-int8-cpu')]
     [string]$DefaultModel = 'qwen3-asr-1.7b-cuda'
 )
@@ -37,6 +38,7 @@ if ($listener) {
 New-Item -ItemType Directory -Path $logRoot -Force | Out-Null
 $env:WEAVE_ASR_HOME = $InstallRoot
 $env:WEAVE_ASR_DEFAULT_MODEL = $DefaultModel
+$env:WEAVE_ASR_IDLE_UNLOAD_SECONDS = [string]$IdleUnloadSeconds
 $env:HF_HOME = Join-Path $InstallRoot 'models\huggingface'
 $env:HF_HUB_DISABLE_SYMLINKS_WARNING = '1'
 $env:PYTHONUTF8 = '1'

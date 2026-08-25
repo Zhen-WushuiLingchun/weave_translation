@@ -32,6 +32,10 @@ OV_CACHE = Path(os.environ.get("WEAVE_ASR_OV_CACHE", HOME / "cache" / "openvino"
 ENABLE_NPU = os.environ.get("WEAVE_ASR_ENABLE_NPU", "0") == "1"
 DEFAULT_MODEL = os.environ.get("WEAVE_ASR_DEFAULT_MODEL", "faster-whisper-small-cuda").strip()
 MAX_UPLOAD_BYTES = int(os.environ.get("WEAVE_ASR_MAX_UPLOAD_BYTES", str(512 * 1024 * 1024)))
+IDLE_UNLOAD_SECONDS = max(
+    0.0,
+    float(os.environ.get("WEAVE_ASR_IDLE_UNLOAD_SECONDS", "120")),
+)
 QWEN3_ASR_17B = os.environ.get("WEAVE_ASR_QWEN3_ASR_17B", "Qwen/Qwen3-ASR-1.7B")
 QWEN3_ASR_06B = os.environ.get("WEAVE_ASR_QWEN3_ASR_06B", "Qwen/Qwen3-ASR-0.6B")
 QWEN3_ALIGNER = os.environ.get(
@@ -131,6 +135,11 @@ app.add_middleware(
 _pipelines: dict[str, Any] = {}
 _load_locks: dict[str, asyncio.Lock] = {}
 _inference_locks: dict[str, asyncio.Lock] = {}
+_queued_requests: dict[str, int] = {}
+_active_requests: dict[str, int] = {}
+_last_used_at: dict[str, float] = {}
+_last_unloaded_at: dict[str, float] = {}
+_idle_unload_tasks: dict[str, asyncio.Task[None]] = {}
 _dll_handles: list[Any] = []
 
 
@@ -142,8 +151,9 @@ def _resolve_model_spec(requested_model: str) -> ModelSpec | None:
     return MODEL_SPECS.get(requested_model)
 
 
-def _release_pipeline_sync(pipeline: Any) -> None:
-    del pipeline
+def _release_cuda_cache_sync() -> None:
+    """Collect after the caller has already removed its final pipeline reference."""
+
     gc.collect()
     try:
         import torch
@@ -153,6 +163,72 @@ def _release_pipeline_sync(pipeline: Any) -> None:
             torch.cuda.ipc_collect()
     except (ImportError, RuntimeError):
         pass
+
+
+def _activity(model_id: str) -> tuple[int, int]:
+    return _active_requests.get(model_id, 0), _queued_requests.get(model_id, 0)
+
+
+def _cancel_idle_unload(model_id: str) -> None:
+    task = _idle_unload_tasks.pop(model_id, None)
+    if task is not None and task is not asyncio.current_task() and not task.done():
+        task.cancel()
+
+
+async def _unload_pipeline(spec: ModelSpec, *, if_idle: bool) -> dict[str, Any]:
+    active, queued = _activity(spec.id)
+    if if_idle and (active or queued):
+        return {
+            "status": "busy",
+            "model": spec.id,
+            "unloaded": False,
+            "active_requests": active,
+            "queued_requests": queued,
+        }
+
+    inference_lock = _inference_locks.setdefault(spec.id, asyncio.Lock())
+    async with inference_lock:
+        active, queued = _activity(spec.id)
+        if if_idle and (active or queued):
+            return {
+                "status": "busy",
+                "model": spec.id,
+                "unloaded": False,
+                "active_requests": active,
+                "queued_requests": queued,
+            }
+        _cancel_idle_unload(spec.id)
+        pipeline = _pipelines.pop(spec.id, None)
+        unloaded = pipeline is not None
+        # Do not pass the pipeline to the worker: the worker argument itself
+        # would keep the CUDA module alive while gc.collect() is running.
+        if pipeline is not None:
+            del pipeline
+        await asyncio.to_thread(_release_cuda_cache_sync)
+        if unloaded:
+            _last_unloaded_at[spec.id] = time.time()
+    return {"status": "ok", "model": spec.id, "unloaded": unloaded}
+
+
+async def _idle_unload_after(spec: ModelSpec, last_used: float) -> None:
+    try:
+        await asyncio.sleep(IDLE_UNLOAD_SECONDS)
+        if _last_used_at.get(spec.id) != last_used:
+            return
+        await _unload_pipeline(spec, if_idle=True)
+    except asyncio.CancelledError:
+        return
+    finally:
+        current = _idle_unload_tasks.get(spec.id)
+        if current is asyncio.current_task():
+            _idle_unload_tasks.pop(spec.id, None)
+
+
+def _schedule_idle_unload(spec: ModelSpec) -> None:
+    _cancel_idle_unload(spec.id)
+    last_used = time.time()
+    _last_used_at[spec.id] = last_used
+    _idle_unload_tasks[spec.id] = asyncio.create_task(_idle_unload_after(spec, last_used))
 
 
 def _available_openvino_devices() -> list[str]:
@@ -406,6 +482,11 @@ async def health() -> dict[str, Any]:
         "openvino_devices": _available_openvino_devices(),
         "default_model": DEFAULT_MODEL,
         "loaded_models": sorted(_pipelines),
+        "active_requests": sum(_active_requests.values()),
+        "queued_requests": sum(_queued_requests.values()),
+        "idle_unload_seconds": IDLE_UNLOAD_SECONDS,
+        "last_used_at": dict(_last_used_at),
+        "last_unloaded_at": dict(_last_unloaded_at),
         "models": [spec.id for spec in MODEL_SPECS.values()],
     }
 
@@ -429,17 +510,12 @@ async def models() -> dict[str, Any]:
 
 
 @app.post("/admin/unload")
-async def unload(model: str | None = None) -> dict[str, Any]:
+async def unload(model: str | None = None, if_idle: bool = False) -> dict[str, Any]:
     requested = model or DEFAULT_MODEL
     spec = _resolve_model_spec(requested)
     if spec is None:
         raise HTTPException(status_code=400, detail=f"Unknown model '{requested}'.")
-    inference_lock = _inference_locks.setdefault(spec.id, asyncio.Lock())
-    async with inference_lock:
-        pipeline = _pipelines.pop(spec.id, None)
-        if pipeline is not None:
-            await asyncio.to_thread(_release_pipeline_sync, pipeline)
-    return {"status": "ok", "model": spec.id, "unloaded": pipeline is not None}
+    return await _unload_pipeline(spec, if_idle=if_idle)
 
 
 @app.post("/v1/audio/transcriptions", response_model=None)
@@ -463,11 +539,18 @@ async def transcriptions(
             detail=f"Audio payload exceeds the {limit_mib:g} MiB local safety limit.",
         )
     audio, duration = await asyncio.to_thread(_decode_audio, payload)
-    pipeline = await _get_pipeline(spec)
     inference_lock = _inference_locks.setdefault(spec.id, asyncio.Lock())
     started = time.perf_counter()
-    async with inference_lock:
-        try:
+    _cancel_idle_unload(spec.id)
+    _queued_requests[spec.id] = _queued_requests.get(spec.id, 0) + 1
+    entered = False
+    pipeline: Any | None = None
+    try:
+        async with inference_lock:
+            _queued_requests[spec.id] = max(0, _queued_requests.get(spec.id, 1) - 1)
+            entered = True
+            _active_requests[spec.id] = _active_requests.get(spec.id, 0) + 1
+            pipeline = await _get_pipeline(spec)
             if spec.backend == "qwen3-asr":
                 text, segments, detected_language = await asyncio.to_thread(
                     _qwen3_transcribe, pipeline, audio, language, prompt
@@ -480,10 +563,18 @@ async def transcriptions(
                 text, segments, detected_language = await asyncio.to_thread(
                     _faster_whisper_transcribe, pipeline, audio, language, prompt
                 )
-        except HTTPException:
-            raise
-        except Exception as error:
-            raise HTTPException(status_code=500, detail=f"{spec.id} transcription failed: {error}") from error
+    except HTTPException:
+        raise
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=f"{spec.id} transcription failed: {error}") from error
+    finally:
+        pipeline = None
+        if entered:
+            _active_requests[spec.id] = max(0, _active_requests.get(spec.id, 1) - 1)
+        else:
+            _queued_requests[spec.id] = max(0, _queued_requests.get(spec.id, 1) - 1)
+        if _active_requests.get(spec.id, 0) == 0 and _queued_requests.get(spec.id, 0) == 0:
+            _schedule_idle_unload(spec)
     processing_ms = round((time.perf_counter() - started) * 1000, 1)
     if response_format == "text":
         return PlainTextResponse(text)
