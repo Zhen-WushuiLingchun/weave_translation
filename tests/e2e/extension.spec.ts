@@ -44,6 +44,94 @@ async function removeTemporaryDirectory(directory: string, prefix: string): Prom
   }
 }
 
+test('preserves native selection, context menus and copy while the translation dot is visible', async () => {
+  test.skip(process.env.WEAVE_E2E !== '1', 'Set WEAVE_E2E=1 to run the Chrome extension smoke test.');
+  const extensionPath = fs.mkdtempSync(path.join(os.tmpdir(), 'weave-e2e-extension-'));
+  const profileDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'weave-e2e-'));
+  copyDirectory(path.resolve('.output/chrome-mv3'), extensionPath);
+  const installedRoot = path.join(process.env.LOCALAPPDATA ?? '', 'ms-playwright');
+  const chromiumDirectory = fs.readdirSync(installedRoot).filter((name) => /^chromium-\d+$/.test(name)).sort().at(-1);
+  const executablePath = process.env.PLAYWRIGHT_CHROMIUM_PATH ?? path.join(installedRoot, chromiumDirectory ?? '', 'chrome-win64', 'chrome.exe');
+  const source = 'Selected text must remain available for native copy.';
+  const server = http.createServer((_request, response) => {
+    response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    response.end(`<!doctype html><html lang="en"><head><title>Native selection</title></head>
+      <body style="margin:100px;font:20px/2 monospace;min-height:1800px"><p id="source">${source}</p>
+      <input id="paste-target" aria-label="Paste target"><script>
+      window.nativeEvents = [];
+      for (const type of ['contextmenu', 'copy']) document.addEventListener(type, event => {
+        const text = window.getSelection()?.toString();
+        queueMicrotask(() => window.nativeEvents.push({ type, text, prevented: event.defaultPrevented }));
+      });
+      </script></body></html>`);
+  });
+  let context: Awaited<ReturnType<typeof chromium.launchPersistentContext>> | undefined;
+  try {
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('Fixture server did not start.');
+    context = await chromium.launchPersistentContext(profileDirectory, {
+      headless: process.env.WEAVE_E2E_HEADLESS === '1', executablePath,
+      viewport: { width: 1440, height: 900 },
+      args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
+    });
+    const page = await context.newPage();
+    await page.goto(`http://127.0.0.1:${address.port}`);
+    await expect(page.getByRole('button', { name: '拖动位置或点击打开织语' })).toBeVisible();
+    const rect = await page.locator('#source').evaluate((paragraph) => {
+      const range = document.createRange();
+      range.selectNodeContents(paragraph);
+      const bounds = range.getBoundingClientRect();
+      return { left: bounds.left, right: bounds.right, y: (bounds.top + bounds.bottom) / 2 };
+    });
+    // Select using real mouse input so Chromium's native selection and menu behavior run.
+    const selectSource = async () => {
+      await page.mouse.move(rect.left, rect.y);
+      await page.mouse.down();
+      await page.mouse.move(rect.right, rect.y, { steps: 12 });
+      await page.mouse.up();
+    };
+    await selectSource();
+    const dot = page.getByRole('button', { name: '翻译所选文本' });
+    await expect(dot).toBeVisible();
+    await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe(source);
+    const anchorPosition = () => dot.evaluate((button) => ({ left: button.style.left, top: button.style.top }));
+    const before = await anchorPosition();
+    const point = { x: (rect.left + rect.right) / 2, y: rect.y };
+    await page.mouse.click(point.x, point.y, { button: 'right' });
+    const events = () => page.evaluate(() => (window as unknown as {
+      nativeEvents: Array<{ type: string; text: string; prevented: boolean }>;
+    }).nativeEvents);
+    await expect.poll(events).toContainEqual({ type: 'contextmenu', text: source, prevented: false });
+    await page.keyboard.press('Escape');
+    await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe(source);
+    await expect(dot).toBeVisible();
+    expect(await anchorPosition()).toEqual(before);
+    await page.keyboard.press('Control+c');
+    await expect.poll(events).toContainEqual({ type: 'copy', text: source, prevented: false });
+
+    await page.getByRole('textbox', { name: 'Paste target' }).click();
+    await expect(dot).toHaveCount(0);
+    await page.keyboard.press('Control+v');
+    await expect(page.getByRole('textbox', { name: 'Paste target' })).toHaveValue(source);
+
+    // A middle press must not clear the selection in the extension's capture handler.
+    await selectSource();
+    await expect(dot).toBeVisible();
+    await page.mouse.move(point.x, point.y);
+    await page.mouse.down({ button: 'middle' });
+    await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe(source);
+    await expect(dot).toBeVisible();
+    await page.mouse.up({ button: 'middle' });
+    await page.keyboard.press('Escape');
+  } finally {
+    if (context) await context.close();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await removeTemporaryDirectory(profileDirectory, 'weave-e2e-');
+    await removeTemporaryDirectory(extensionPath, 'weave-e2e-extension-');
+  }
+});
+
 test('loads the unpacked extension and translates a real page through a mock provider', async () => {
   test.skip(process.env.WEAVE_E2E !== '1', 'Set WEAVE_E2E=1 to run the Chrome extension smoke test.');
   const builtExtensionPath = path.resolve('.output/chrome-mv3');
@@ -279,6 +367,12 @@ test('loads the unpacked extension and translates a real page through a mock pro
     if (visualDirectory) await page.screenshot({ path: path.join(visualDirectory, 'weave-selection-loading.png'), fullPage: false });
     await expect(page.locator('.weave-selection-result')).toContainText('译文：Working method');
     expect(reasoningEfforts).toContain('none');
+    // A right-button release over the original selection must not replace an open card with a new dot.
+    await page.evaluate(() => document.getElementById('maximum-z-index-cover')?.remove());
+    await page.locator('h2').click({ button: 'right', position: { x: 20, y: 15 } });
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.weave-selection-result')).toContainText('译文：Working method');
+    await expect(selectionDot).toHaveCount(0);
     const beforeDrag = await cardHandle.boundingBox();
     if (!beforeDrag) throw new Error('Selection card drag handle has no bounding box.');
     await page.mouse.move(beforeDrag.x + beforeDrag.width / 2, beforeDrag.y + beforeDrag.height / 2);

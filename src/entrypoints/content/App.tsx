@@ -157,6 +157,7 @@ export default function App(): React.ReactElement | null {
       return;
     }
     const onPointerUp = (event: PointerEvent) => {
+      if (event.button !== 0) return;
       if (selectionCardDraggingRef.current) return;
       if (isWeaveInteraction(event)) return;
       window.setTimeout(() => {
@@ -225,8 +226,9 @@ export default function App(): React.ReactElement | null {
       frame = window.requestAnimationFrame(updatePosition);
     };
     const onPointerDown = (event: PointerEvent) => {
+      if (event.button !== 0) return;
       if (isWeaveInteraction(event)) return;
-      window.getSelection()?.removeAllRanges();
+      // Hide our UI only; Chromium owns selection changes and native copy/menu behavior.
       dismiss();
     };
     const onSelectionChange = () => {
@@ -622,7 +624,7 @@ export default function App(): React.ReactElement | null {
       </aside>
 
       {selectionDotVisible && selection && (
-        <button className="weave-selection-dot" style={{ left: selection.x, top: selection.y }} onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); }} onClick={() => void translateSelection()} aria-label="翻译所选文本">译</button>
+        <button className="weave-selection-dot" style={{ left: selection.x, top: selection.y }} onPointerDown={(event) => { if (event.button !== 0) return; event.preventDefault(); event.stopPropagation(); }} onClick={() => void translateSelection()} aria-label="翻译所选文本">译</button>
       )}
 
       {selection && (selection.result || selection.loading || selection.error) && (
