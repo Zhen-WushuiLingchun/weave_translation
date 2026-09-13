@@ -3,7 +3,7 @@
   <h1>织语 Weave</h1>
   <p>使用自己的 AI 模型，在网页、划词与视频字幕中获得有上下文的自然翻译。</p>
   <p>
-    <img alt="Version 0.4.0" src="https://img.shields.io/badge/version-0.4.0-E85D4A">
+    <img alt="Version 0.5.0" src="https://img.shields.io/badge/version-0.5.0-E85D4A">
     <img alt="Chrome Manifest V3" src="https://img.shields.io/badge/Chrome-Manifest%20V3-2A7F78">
     <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-7-3178C6">
     <img alt="Apache 2.0" src="https://img.shields.io/badge/license-Apache--2.0-111820">
@@ -41,6 +41,28 @@
 - 卡片可拖动，位置始终限制在当前视口内，方便边阅读边对照。
 - 首轮请求包含所在段落、相邻内容和最近的标题层级。
 - 可继续请求“解释语境”，用于辨析词义、指代和专业术语。
+
+### 原生 PDF + 织语侧边栏
+
+继续使用 **Chrome 自带的 PDF 查看器**：不接管 PDF 链接，不另开阅读器，缩放、目录、打印与批注仍由 Chrome 提供。
+
+1. 在 PDF 中选中文字，右键选择 **“用织语翻译所选文字（侧边栏）”**，即可在 Chrome 侧边栏查看译文。也可点击织语工具栏图标 → **PDF 翻译侧边栏**，手动粘贴文字；普通网页圆点行为不变。
+2. 在线 PDF 在用户翻译时按需本地解析；本地 PDF 请在侧边栏 **“关联本地 PDF”** 选取同一文件一次。该操作仅建立本地上下文，不改变原生阅读画面。最大 100 MiB；受认证或特殊链接限制时，可下载后关联本地文件。
+3. 侧边栏可为 PDF 翻译、解释、指定页摘要分别切换模型和思考深度。默认输入预算 **8k**，可选 **16k**；这是包含图片预留量的保守估算，不是服务商精确计费 Token。
+4. 默认本地匹配选文所在页，然后选取邻近段落及已索引的相关定义，不上传全文。定位最多扫描 2000 页 / 300 万提取字符；重复句子、公式或双栏提取可能影响定位，可关闭自动定位并修正页码。未定位时只翻译选文，不编造上下文。**指定页摘要**只概括该页，不代表全文或完整章节。
+5. 公式与扫描区域可用 **“截取当前画面”**，再在侧边栏圈选；也支持粘贴/导入截图。自动模式会尝试为已定位的公式段落生成局部截图。**图片预览后再确认发送**，每次最多两张、每张 ≤2 MiB / 2048 像素。截图不能自动得知原生查看器的页码；需要关联上下文时请指定页码。
+
+只有具备 `vision` 能力的模型可接收图片。DeepSeek 默认预设使用 `deepseek-flash`；其他视觉模型也可使用标准 OpenAI-compatible `image_url` 协议。模型不能接收图片时明确提示，不自动切到可能更昂贵的模型。PDF 使用有界本地术语命中，不额外开启查词工具轮次。
+
+如果截图提示权限不足，先点击一次 Chrome 工具栏织语图标，再尝试截图；也可直接粘贴截图。侧边栏只有用户翻译/生成摘要/确认图片时才调用模型，打开它不会自动发送文档。首版不把划词圆点注入原生 PDF 的受保护文字层。
+
+### PDF 缓存：复用与自动清理
+
+- 默认 **仅本次阅读**：截图和结果保存在内存；关闭侧边栏后释放，后台休眠也可能清空结果缓存。
+- 可选 **保存在此设备**：本地 IndexedDB 缓存图片、译文和摘要，不保存原 PDF。可选 **1 / 7 / 30 天**，**32 / 64 / 128 MiB** 容量（默认 7 天、64 MiB）。从条目写入计时；到期数据在侧边栏启动或缓存读写时清理，超额按最近使用顺序淘汰。浏览器关闭期间不会定时擦除磁盘文件。
+- **复用最近选区**可找回同一文档的最近截图，确认后继续提问/翻译。跨次阅读需重新关联同一 PDF；已解析文档按内容 SHA-256 区分，文件变化不会误用同名旧文件的截图。未解析文档的截图只保留在当前会话。
+- 完全相同的任务、文本、图片、模型、思考模式、语言、提示版本与命中术语可复用译文，不产生新模型请求。更换问题或上下文后，普通 Chat API 通常仍需重新发送图片；**本地缓存不等于模型持有文档记忆**，也不保证服务商缓存折扣。
+- 支持清除此文档 / 全部 PDF 缓存；切回会话模式会清除 PDF 磁盘缓存。磁盘数据未加密，敏感文献建议保持会话模式。此配置独立于原有网页翻译缓存。
 
 ### YouTube / Bilibili 字幕翻译
 
@@ -101,7 +123,7 @@
 
 ### 从源码构建
 
-环境要求：Chrome 116+、Node.js 20+、pnpm 11。
+环境要求：Chrome 116+（建议最新版）、Node.js 22.13+、pnpm 11。PDF.js 使用 legacy 构建；端到端验证使用当前安装的 Chromium，不代表所有旧版浏览器均已逐一测试。
 
 ```powershell
 git clone https://github.com/Zhen-WushuiLingchun/weave_translation.git
@@ -142,7 +164,7 @@ DeepSeek 默认预设为 **V4.1 Flash**，模型标识是 `deepseek-flash`，接
 `https://api.deepseek.com/chat/completions`。升级后，使用官方接口的旧 Flash / Flash Vision Exp
 配置会自动改用新标识，并保留密钥引用、任务路由、自定义名称和思考强度；第三方接口和 Pro
 模型保持原配置。具体模型更新见 [DeepSeek 官方更新日志](https://api-docs.deepseek.com/zh-cn/updates/)。
-当前织语的翻译请求仍使用文本；模型具备视觉能力不代表扩展已支持 PDF 或图片输入。
+v0.5.0 已在 PDF 侧边栏接通文字与图片混合输入；V4.1 的模型标识与原生视觉能力见 [DeepSeek 官方发布说明](https://deepseek.com/news/deepseek-v4-1-flash/)。通用视觉请求格式参考 [图像理解指南](https://api-docs.deepseek.com/zh-cn/guides/vision/)。本地验证使用模拟 API，不代表已用真实 Key 实测所有提供商。
 
 无字幕视频需要额外配置完整的 `/audio/transcriptions` 地址和具备 `audioTranscription` 能力的模型。仓库提供可选的 Windows 本地服务安装脚本，默认使用支持中英文、上下文提示和时间戳的 Qwen3-ASR-1.7B，同时保留 NVIDIA Whisper、Intel 核显和 CPU 后端；安装位置、端口及默认设备均可配置。希望减少独显占用时，可将 `DefaultModel` 设为 `openvino-whisper-base-int8-gpu`，详见 [本地 ASR 配置](docs/local-asr.md)。
 
@@ -158,6 +180,7 @@ DeepSeek 默认预设为 **V4.1 Flash**，模型标识是 `deepseek-flash`，接
 - 安装时申请普通网页访问权限，用于显示侧边坞和在用户触发后读取可翻译文本；Chrome 内部页与 Chrome Web Store 等受保护页面无法注入。
 - `tabCapture` 是可选权限，只在用户点击无字幕生成时申请；音频进入内存分片后发送到用户配置的转录服务，不写入磁盘或 IndexedDB。
 - 发送给模型的内容取决于所选功能：整页翻译会发送摘要样本和文本批次，划词会发送选中内容及邻近语境，字幕翻译会发送视频标题、字幕样本和当前时间附近的句子。
+- `sidePanel` 显示原生浏览器侧边栏，`contextMenus` 提供选文入口，`activeTab` 支持用户主动截图；PDF 只上传有界文本上下文与确认过的局部图片，不上传原文件。PDF.js 的 worker、字体、CMaps 和图像解码器均本地打包，不运行 PDF 自带脚本。
 
 更完整的数据流说明见 [SECURITY.md](SECURITY.md)。请勿在 Issue、日志或截图中公开真实 API Key 与敏感网页内容。
 
@@ -176,7 +199,15 @@ pnpm test:e2e
 pnpm test
 ```
 
-当前共有 56 项 Vitest 测试，覆盖上下文与 DOM、公式保护、字幕断句、多模型路由、v1→v2 迁移、密钥隔离、词典检索、工具调用、PCM/WAV、VAD、重叠去重、转录响应、重试与日志边界。Playwright 使用持久化 Chromium 验证扩展安装、Manifest 权限、模型配置、站点规则、公式、侧边坞、整页翻译和划词链路。
+Vitest 覆盖上下文与 DOM、公式保护、字幕断句、多模型路由、配置迁移、密钥隔离、词典、音频、重试，以及 PDF 图像协议、预算、文档指纹与缓存淘汰。可选的真实本地 ASR 测试默认跳过。
+
+Playwright 验证普通网页与原生 PDF 侧边栏。PDF 测试通过隔离 Chromium 的 CDP 连接操作真实侧边栏；在 Windows 有界面模式下，还用真实鼠标选择 PDF 文字及 UI Automation 点击该测试浏览器进程的原生织语菜单，验证选文交付和 `captureVisibleTab`。无界面模式覆盖侧边栏粘贴文字、截图导入、模型切换、图像确认、取消和缓存链路，不冒充原生菜单测试。
+
+```powershell
+$env:WEAVE_E2E='1'
+$env:WEAVE_E2E_HEADLESS='0'
+pnpm exec playwright test tests/e2e/pdf-sidebar.spec.ts --workers=1
+```
 
 ## 项目结构
 
@@ -187,6 +218,7 @@ src/
 │  └─ subtitles/           # YouTube/Bilibili 适配与字幕断句
 ├─ entrypoints/            # MV3 后台、内容脚本、Offscreen、设置与弹窗
 ├─ lib/                    # 数据契约、音频、词典、默认值与站点规则
+├─ pdf/                    # 本地 PDF 解析、上下文、图像协议与专用缓存
 └─ ui/                     # 共享视觉基础
 tests/                     # Vitest 与 Playwright 测试
 public/                    # 本地图标资源
@@ -201,8 +233,8 @@ public/                    # 本地图标资源
 - 任意 HTML5 视频或会议标签页的通用 ASR（当前正式支持 YouTube/Bilibili）
 - 下载完整媒体并预先识别尚未播放的音频
 - 扩展 ZIP 内捆绑 Python、模型或驱动（本地 ASR 需用户主动运行独立安装脚本）
-- OCR 图片翻译
-- PDF / 电子书专用解析
+- 原生 PDF 内的浮动划词圆点、连续整份 PDF 翻译与重排导出
+- 任意网页通用 OCR、完整电子书解析（PDF 侧边栏已有视觉辅助）
 - 云同步、用户账户或团队术语库
 - Firefox、Safari 与移动端正式支持
 

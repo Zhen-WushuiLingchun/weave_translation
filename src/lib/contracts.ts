@@ -3,10 +3,10 @@ export type PageMode = 'original' | 'bilingual' | 'translated';
 export type DockSide = 'left' | 'right';
 export type ProviderKind = 'deepseek' | 'openai-compatible';
 export type ReasoningMode = 'compatible' | 'fast' | 'balanced' | 'deep';
-export type TranslationScope = 'page' | 'selection' | 'subtitle';
+export type TranslationScope = 'page' | 'selection' | 'subtitle' | 'pdf';
 export type TranslationTheme = 'auto' | 'light' | 'dark';
 export type SecretPersistence = 'local' | 'session';
-export type ModelCapability = 'chat' | 'tools' | 'audioTranscription' | 'reasoningEffort';
+export type ModelCapability = 'chat' | 'tools' | 'audioTranscription' | 'reasoningEffort' | 'vision';
 export type GlossaryMode = 'off' | 'matched' | 'hybrid';
 export type TaskRouteKey =
   | 'pageContext'
@@ -15,6 +15,9 @@ export type TaskRouteKey =
   | 'selectionExplanation'
   | 'videoContext'
   | 'subtitleTranslation'
+  | 'pdfContext'
+  | 'pdfTranslation'
+  | 'pdfExplanation'
   | 'transcription';
 
 export interface ProviderConnection {
@@ -116,6 +119,21 @@ export interface TranslationTask {
   context?: ContextBrief;
   glossary?: GlossaryMatch[];
   stream?: boolean;
+  pdf?: { documentId: string; pages: number[]; budget: number; locationKnown?: boolean };
+  images?: Array<{ page: number; purpose: 'selection' | 'overview'; dataUrl: string }>;
+}
+
+export interface PdfSettings {
+  visionMode: 'auto' | 'text' | 'image';
+  contextBudget: 8000 | 16000;
+  theme: TranslationTheme;
+  cachePersistence: 'session' | 'disk';
+  cacheDays: 1 | 7 | 30;
+  cacheMaxMb: 32 | 64 | 128;
+}
+
+export interface PdfPanelSource {
+  tabId: number; windowId: number; url: string; title: string; text: string; nonce: string;
 }
 
 export interface TranslationItem {
@@ -248,6 +266,7 @@ export interface WeaveSettings {
   pageTheme: TranslationTheme;
   dock: DockState;
   video: VideoSettings;
+  pdf: PdfSettings;
   siteRules: Record<string, SiteRule>;
 }
 
@@ -293,6 +312,12 @@ export type RuntimeRequest =
   | { type: 'SET_TAB_MODEL'; route: TaskRouteKey; profileId?: string }
   | { type: 'GET_EFFECTIVE_ROUTES' }
   | { type: 'TRANSLATE'; task: TranslationTask }
+  | { type: 'PDF_TRANSLATE'; task: TranslationTask; profileId: string; reasoningMode: ReasoningMode; sessionId: string; documentUrl?: string }
+  | { type: 'PDF_CANCEL'; sessionId: string; release?: boolean }
+  | { type: 'PDF_CACHE_CLEAR'; documentId?: string }
+  | { type: 'PDF_PANEL_SOURCE'; windowId: number }
+  | { type: 'PDF_CAPTURE'; tabId: number; windowId: number }
+  | { type: 'OPEN_PDF' }
   | { type: 'FETCH_CAPTION_JSON'; url: string }
   | { type: 'GLOSSARY_LIST'; collectionId?: string; status?: GlossaryEntry['status'] }
   | { type: 'GLOSSARY_PUT'; entry: GlossaryEntry }

@@ -1,6 +1,6 @@
 {
   "name": "weave-translate",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "description": "织语 Weave — contextual web and subtitle translation for Chrome",
@@ -17,6 +17,7 @@
   "dependencies": {
     "@wxt-dev/module-react": "1.2.2",
     "katex": "0.18.1",
+    "pdfjs-dist": "6.3.289",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },
@@ -32,7 +33,7 @@
     "wxt": "0.21.3"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.13.0"
   },
   "packageManager": "pnpm@11.9.0"
 }

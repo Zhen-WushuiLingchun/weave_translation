@@ -434,6 +434,10 @@ export default function App(): React.ReactElement | null {
       dockDraggedRef.current = false;
       return;
     }
+    if (document.contentType === 'application/pdf' || document.querySelector('embed[type="application/pdf"]')) {
+      void sendRuntimeMessage({ type: 'OPEN_PDF' });
+      return;
+    }
     setExpanded((value) => !value);
   };
 

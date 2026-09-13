@@ -42,6 +42,9 @@ const routeLabels: Record<TaskRouteKey, { label: string; capability: ModelCapabi
   videoContext: { label: '视频主题摘要', capability: 'chat', note: '字幕主题与人名术语' },
   subtitleTranslation: { label: '字幕翻译', capability: 'chat', note: '播放期间的字幕预取' },
   transcription: { label: '语音识别', capability: 'audioTranscription', note: '无字幕视频边播边生成' },
+  pdfContext: { label: 'PDF 阅读摘要', capability: 'chat', note: '按需理解当前阅读范围' },
+  pdfTranslation: { label: 'PDF 翻译', capability: 'chat', note: '附图时需勾选模型 vision 能力' },
+  pdfExplanation: { label: 'PDF 语境解释', capability: 'chat', note: '按文献上下文解释术语与指代' },
 };
 
 const reasoningOptions: Array<{ value: ReasoningMode; label: string }> = [
@@ -307,7 +310,7 @@ function Options(): React.ReactElement {
             <label className="field"><span>模型标识</span><input value={modelDraft.model} spellCheck={false} onChange={(event) => setModelDraft({ ...modelDraft, model: event.target.value })} /></label>
             <label className="field"><span>服务连接</span><select value={modelDraft.connectionId} onChange={(event) => setModelDraft({ ...modelDraft, connectionId: event.target.value })}>{settings.connections.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
             <label className="switch"><span>启用模型</span><input type="checkbox" checked={modelDraft.enabled} onChange={(event) => setModelDraft({ ...modelDraft, enabled: event.target.checked })} /></label>
-            <fieldset className="capabilities full"><legend>模型能力</legend>{(['chat', 'tools', 'audioTranscription', 'reasoningEffort'] as ModelCapability[]).map((capability) => <label key={capability}><input type="checkbox" checked={modelDraft.capabilities.includes(capability)} onChange={(event) => setModelDraft({ ...modelDraft, capabilities: event.target.checked ? [...new Set([...modelDraft.capabilities, capability])] : modelDraft.capabilities.filter((item) => item !== capability) })} />{capability}</label>)}</fieldset>
+            <fieldset className="capabilities full"><legend>模型能力</legend>{(['chat', 'tools', 'audioTranscription', 'reasoningEffort', 'vision'] as ModelCapability[]).map((capability) => <label key={capability}><input type="checkbox" checked={modelDraft.capabilities.includes(capability)} onChange={(event) => setModelDraft({ ...modelDraft, capabilities: event.target.checked ? [...new Set([...modelDraft.capabilities, capability])] : modelDraft.capabilities.filter((item) => item !== capability) })} />{capability === 'vision' ? 'vision（图片输入）' : capability}</label>)}</fieldset>
             <div className="actions full"><button className="button-primary" onClick={() => void saveModel()}>保存模型</button><button className="button-secondary" onClick={() => setModelDraft({ ...modelDraft, id: `model-${crypto.randomUUID().slice(0, 8)}`, label: `${modelDraft.label} 副本` })}>复制为新模型</button><button className="button-quiet danger" onClick={() => void deleteModel(modelDraft.id)}>删除模型</button></div>
           </div>
         </section>{status && <p className={`status ${status.error ? 'is-error' : ''}`}>{status.text}</p>}

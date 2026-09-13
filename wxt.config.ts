@@ -1,4 +1,7 @@
 import { defineConfig } from 'wxt';
+import { readFileSync, readdirSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import path from 'node:path';
 
 export default defineConfig({
   modules: ['@wxt-dev/module-react'],
@@ -10,9 +13,11 @@ export default defineConfig({
     name: '织语 Weave',
     short_name: '织语',
     description: '用自己的模型，在网页与视频中获得有上下文的自然翻译。',
-    version: '0.4.0',
+    version: '0.5.0',
+    content_security_policy: { extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'" },
     minimum_chrome_version: '116',
-    permissions: ['storage', 'scripting', 'offscreen'],
+    permissions: ['storage', 'scripting', 'offscreen', 'sidePanel', 'contextMenus', 'activeTab'],
+    side_panel: { default_path: 'pdf.html' },
     optional_permissions: ['tabCapture'],
     host_permissions: ['http://*/*', 'https://*/*'],
     action: {
@@ -48,6 +53,20 @@ export default defineConfig({
     ],
   },
   hooks: {
+    'build:publicAssets': (_wxt, files) => {
+      const root = path.dirname(createRequire(import.meta.url).resolve('pdfjs-dist/package.json'));
+      const copy = (directory: string) => {
+        for (const entry of readdirSync(path.join(root, directory), { withFileTypes: true })) {
+          const relative = `${directory}/${entry.name}`;
+          if (entry.isDirectory()) copy(relative);
+          else if (!entry.name.startsWith('quickjs-')) files.push({ absoluteSrc: path.join(root, relative), relativeDest: `pdf-assets/${relative}` });
+        }
+      };
+      for (const directory of ['cmaps', 'standard_fonts', 'wasm']) copy(directory);
+      files.push({ absoluteSrc: path.join(root, 'LICENSE'), relativeDest: 'pdf-assets/LICENSE' });
+      const worker = readFileSync(path.join(root, 'legacy/build/pdf.worker.min.mjs'), 'utf8');
+      files.push({ relativeDest: 'pdf-assets/pdf.worker.min.mjs', contents: worker.replace(/[\u007f-\uffff]/g, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`) });
+    },
     'build:manifestGenerated': (_wxt, manifest) => {
       if (manifest.options_ui) manifest.options_ui.open_in_tab = true;
     },

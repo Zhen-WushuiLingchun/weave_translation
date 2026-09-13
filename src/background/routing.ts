@@ -15,6 +15,7 @@ export type TabRouteOverrides = Partial<Record<TaskRouteKey, string>>;
 
 export function routeKeyForTask(task: TranslationTask): TaskRouteKey {
   if (task.route) return task.route;
+  if (task.scope === 'pdf') return task.kind === 'summary' ? 'pdfContext' : task.kind === 'explain' ? 'pdfExplanation' : 'pdfTranslation';
   if (task.kind === 'summary') return task.scope === 'subtitle' ? 'videoContext' : 'pageContext';
   if (task.kind === 'explain') return 'selectionExplanation';
   if (task.kind === 'selection') return 'selectionTranslation';

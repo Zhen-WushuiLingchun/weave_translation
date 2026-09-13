@@ -7,6 +7,9 @@
 | [React](https://github.com/facebook/react) | `19.2.8` | MIT | Extension interface runtime |
 | [React DOM](https://github.com/facebook/react) | `19.2.8` | MIT | Extension interface rendering |
 | [KaTeX](https://github.com/KaTeX/KaTeX) | `0.18.1` | MIT | Local LaTeX parsing and MathML rendering |
+| [PDF.js](https://github.com/mozilla/pdf.js/releases/tag/v6.3.289) | `6.3.289` | Apache-2.0 | Local PDF parsing and region rendering for the native-browser side panel; legacy display/worker bundles |
+
+PDF.js is pinned in `pnpm-lock.yaml` with package integrity. Its worker, CMaps, standard fonts and image-decoding WASM are bundled locally under `pdf-assets/`, together with their supplied LICENSE files (Adobe CMaps, Foxit/Liberation fonts, JBIG2, OpenJPEG and QCMS). Weave does not load the PDF scripting manager or QuickJS runtime. The worker's Unicode escaping is a packaging-only adaptation for Chrome's extension text validation. The sidebar interface is implemented by Weave; it does not replace Chrome's native PDF viewer.
 
 ## Optional local ASR environment
 

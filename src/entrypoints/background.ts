@@ -39,6 +39,7 @@ import type {
   ModelProfile,
   ProviderConnection,
   ProviderProfile,
+  PdfPanelSource,
   RuntimeRequest,
   RuntimeResponse,
   SubtitleCue,
@@ -49,6 +50,18 @@ import type {
   WeaveSettings,
 } from '../lib/contracts';
 import { mapCaptureRange, mergeTranscriptionSegments } from '../lib/audio';
+import { PdfCache } from '../pdf/cache';
+import { digest, estimateTextTokens, IMAGE_TOKEN_RESERVE, PDF_PROMPT_VERSION, validatePdfTask } from '../pdf/protocol';
+
+const pdfSessions = new Map<string, { cache: PdfCache; controller?: AbortController }>();
+const PDF_SELECTION_MENU = 'weave-pdf-selection';
+const panelKey = (tabId: number) => `weave.pdf.selection.${tabId}`;
+
+function requirePdfReader(sender: Browser.runtime.MessageSender): void {
+  const own = new URL(browser.runtime.getURL('/pdf.html'));
+  const source = sender.url ? new URL(sender.url) : undefined;
+  if (!source || source.protocol !== own.protocol || source.host !== own.host || source.pathname !== own.pathname) throw new Error('此操作只允许织语 PDF 侧边栏调用。');
+}
 
 const LEGACY_SCRIPT_ID = 'weave-global-dock';
 const SCRIPT_FILES = ['/content-scripts/content.js'] as const;
@@ -266,7 +279,82 @@ async function handleMessage(message: RuntimeRequest, sender: Browser.runtime.Me
         return { ok: true, data: effectiveRoutes(await getSettings(), sender.tab?.url, next) };
       }
       case 'GET_EFFECTIVE_ROUTES': return { ok: true, data: effectiveRoutes(await getSettings(), sender.tab?.url, overrides) };
+      case 'PDF_PANEL_SOURCE': {
+        requirePdfReader(sender);
+        const tab = (await browser.tabs.query({ active: true, windowId: message.windowId }))[0];
+        if (tab?.id == null) throw new Error('没有活动文档标签页。');
+        const saved = (await browser.storage.session.get(panelKey(tab.id)))[panelKey(tab.id)] as PdfPanelSource | undefined;
+        // Consume explicit context-menu input once. Reopening a sidebar alone must not replay an API call.
+        if (saved) await browser.storage.session.remove(panelKey(tab.id));
+        return { ok: true, data: saved && saved.url === tab.url ? saved : {
+          tabId: tab.id, windowId: tab.windowId, url: tab.url ?? '', title: tab.title ?? '当前文档', text: '', nonce: '',
+        } satisfies PdfPanelSource };
+      }
+      case 'PDF_CAPTURE': {
+        requirePdfReader(sender);
+        const tab = (await browser.tabs.query({ active: true, windowId: message.windowId }))[0];
+        if (tab?.id !== message.tabId) throw new Error('活动标签页已改变，请重新确认文档。');
+        return { ok: true, data: await browser.tabs.captureVisibleTab(message.windowId, { format: 'png' }) };
+      }
+      case 'PDF_CANCEL': {
+        requirePdfReader(sender);
+        const session = pdfSessions.get(message.sessionId);
+        session?.controller?.abort();
+        if (message.release) { session?.cache.release(); pdfSessions.delete(message.sessionId); }
+        return { ok: true, data: true };
+      }
+      case 'PDF_CACHE_CLEAR': {
+        requirePdfReader(sender);
+        for (const session of pdfSessions.values()) { session.controller?.abort(); await session.cache.clear(message.documentId); }
+        await new PdfCache().clear(message.documentId);
+        return { ok: true, data: true };
+      }
+      case 'PDF_TRANSLATE': {
+        requirePdfReader(sender);
+        if (!/^[\w-]{1,80}$/.test(message.sessionId)) throw new Error('阅读会话无效。');
+        let session = pdfSessions.get(message.sessionId);
+        if (!session) { session = { cache: new PdfCache() }; pdfSessions.set(message.sessionId, session); }
+        // Bound abandoned readers when a renderer exits without pagehide.
+        if (pdfSessions.size > 16) {
+          const oldest = pdfSessions.keys().next().value;
+          if (oldest) { pdfSessions.get(oldest)?.controller?.abort(); pdfSessions.get(oldest)?.cache.release(); pdfSessions.delete(oldest); }
+        }
+        session.controller?.abort();
+        const controller = new AbortController();
+        session.controller = controller;
+        const timer = setTimeout(() => controller.abort(), 120000);
+        try {
+          const settings = await getSettings();
+          const task = message.task;
+          const route = task.kind === 'summary' ? 'pdfContext' : task.kind === 'explain' ? 'pdfExplanation' : 'pdfTranslation';
+          if (task.scope !== 'pdf' || !task.pdf || !['selection', 'summary', 'explain'].includes(task.kind)) throw new Error('PDF 请求无效。');
+          const sourceUrl = message.documentUrl && /^https?:\/\//i.test(message.documentUrl) ? message.documentUrl : undefined;
+          const routed = await routeTask(settings, { ...task, route }, sourceUrl, { [route]: message.profileId });
+          controller.signal.throwIfAborted();
+          if (!['compatible', 'fast', 'balanced', 'deep'].includes(message.reasoningMode)) throw new Error('思考模式无效。');
+          routed.profile.reasoningMode = message.reasoningMode;
+          // Keep only glossary hits that fit the reserved input space.
+          routed.task.glossary = routed.task.glossary?.slice(0, 12).map((entry) => ({ ...entry, source: entry.source.slice(0, 80), preferred: entry.preferred.slice(0, 80), note: entry.note.slice(0, 120) })) ?? [];
+          while (routed.task.glossary.length && estimateTextTokens(JSON.stringify([routed.task.units, routed.task.context, routed.task.glossary]))
+            + (routed.task.images?.length ?? 0) * IMAGE_TOKEN_RESERVE + 1800 > task.pdf.budget) routed.task.glossary.pop();
+          validatePdfTask(routed.task, routed.profile);
+          const identity = { ...routed.task, id: '' };
+          const keyId = 'result:' + await digest(JSON.stringify([PDF_PROMPT_VERSION, identity, routed.profile]));
+          const cached = await session.cache.get<TranslationResult>(keyId, settings.pdf).catch(() => undefined);
+          controller.signal.throwIfAborted();
+          if (cached) return { ok: true, data: { ...cached, taskId: task.id } };
+          const key = await getApiKey(routed.connection.secretRef, routed.connection.keyPersistence);
+          controller.signal.throwIfAborted();
+          if (!key && !isLocalEndpoint(routed.connection.chatEndpoint)) throw new ProviderError('请先在设置中填写 API Key。', 'MISSING_API_KEY');
+          const result = await callProvider(routed.profile, key, routed.task, fetch, { signal: controller.signal });
+          controller.signal.throwIfAborted();
+          if (result.suggestedTerms) await storeSuggestedTerms(result.suggestedTerms, routed.glossaryContext);
+          if (result.items.every((item) => !item.error)) await session.cache.put(keyId, task.pdf.documentId, result, settings.pdf).catch(() => undefined);
+          return { ok: true, data: result };
+        } finally { clearTimeout(timer); }
+      }
       case 'TRANSLATE': {
+        if (message.task.scope === 'pdf' || message.task.pdf || message.task.images?.length) throw new Error('PDF 与图片请求必须通过织语阅读器发送。');
         const settings = await getSettings();
         const routed = await routeTask(settings, message.task, sender.tab?.url, overrides);
         const key = await getApiKey(routed.connection.secretRef, routed.connection.keyPersistence);
@@ -332,6 +420,12 @@ async function handleMessage(message: RuntimeRequest, sender: Browser.runtime.Me
       }
       case 'CLEAR_CACHE': await cacheClear(message.scope, message.host); return { ok: true, data: true };
       case 'OPEN_OPTIONS': await browser.runtime.openOptionsPage(); return { ok: true, data: true };
+      case 'OPEN_PDF': {
+        const tab = (await browser.tabs.query({ active: true, currentWindow: true }))[0];
+        if (tab?.windowId == null) throw new Error('没有活动浏览器窗口。');
+        await browser.sidePanel.open({ windowId: tab.windowId });
+        return { ok: true, data: true };
+      }
     }
   } catch (error) {
     const known = error instanceof ProviderError ? error : undefined;
@@ -343,17 +437,29 @@ export default defineBackground(() => {
   void protectStorage();
   void unregisterLegacyContent();
   browser.runtime.onInstalled.addListener(({ reason }) => {
+    browser.contextMenus.removeAll(() => browser.contextMenus.create({
+      id: PDF_SELECTION_MENU, title: '用织语翻译所选文字（侧边栏）', contexts: ['selection'],
+    }));
     void injectOpenTabs();
     if (reason === 'install') void browser.tabs.create({ url: browser.runtime.getURL('/onboarding.html') });
+  });
+  browser.contextMenus.onClicked.addListener((info, tab) => {
+    if (info.menuItemId !== PDF_SELECTION_MENU || tab?.id == null || !info.selectionText) return;
+    // Must open inside the user gesture, before asynchronous storage operations.
+    void browser.sidePanel.open({ windowId: tab.windowId });
+    const source: PdfPanelSource = { tabId: tab.id, windowId: tab.windowId, url: tab.url ?? info.pageUrl ?? '', title: tab.title ?? '当前文档', text: info.selectionText.slice(0, 24000), nonce: crypto.randomUUID() };
+    void browser.storage.session.set({ [panelKey(tab.id)]: source }).then(() => browser.runtime.sendMessage({ type: 'PDF_SELECTION_CHANGED' }).catch(() => undefined));
   });
   browser.runtime.onMessage.addListener((message, sender) => {
     if (typeof (message as { type?: unknown })?.type === 'string' && String((message as { type: string }).type).startsWith('WEAVE_OFFSCREEN_')) return undefined;
     return handleMessage(message as RuntimeRequest, sender);
   });
   browser.tabs.onRemoved.addListener((tabId) => {
+    void browser.storage.session.remove(panelKey(tabId));
     tabRouteOverrides.delete(tabId);
     void stopAsrSession(tabId, false);
   });
+  browser.tabs.onUpdated.addListener((tabId, change) => { if (change.url) void browser.storage.session.remove(panelKey(tabId)); });
   browser.commands.onCommand.addListener(async (command) => {
     if (command !== 'toggle-page-translation') return;
     const tab = (await browser.tabs.query({ active: true, currentWindow: true }))[0];

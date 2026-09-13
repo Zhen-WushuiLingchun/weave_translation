@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const outputRoot = path.resolve('.output/chrome-mv3');
-const textExtensions = new Set(['.css', '.html', '.js', '.json', '.map', '.svg']);
+const textExtensions = new Set(['.css', '.html', '.js', '.mjs', '.json', '.map', '.svg']);
 const decoder = new TextDecoder('utf-8', { fatal: true });
 const problems = [];
 

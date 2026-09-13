@@ -18,6 +18,7 @@ function Popup(): React.ReactElement {
     <p className="provider"><i className={connection?.hasApiKey ? 'ready' : ''}/><span>{model?.label ?? '正在读取…'}</span><b>{model?.model}</b></p>
     <div className="popup-ready"><span aria-hidden="true">✓</span><p><strong>普通网页已自动启用</strong><small>点击页面侧边把手打开织语</small></p></div>
     <button className="button-primary" onClick={() => void sendRuntimeMessage({ type: 'OPEN_OPTIONS' })}>打开完整设置</button>
+    <button className="button-primary" onClick={() => void sendRuntimeMessage({ type: 'OPEN_PDF' }).then(() => window.close())}>PDF 翻译侧边栏</button>
     <footer><span>仅用户操作时调用模型</span><button onClick={() => void sendRuntimeMessage({ type: 'OPEN_OPTIONS' })}>设置 →</button></footer>
   </main>;
 }

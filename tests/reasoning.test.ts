@@ -4,7 +4,7 @@ import { DEFAULT_SETTINGS } from '../src/lib/defaults';
 import { resolveReasoningMode } from '../src/lib/reasoning';
 
 const task = (scope: TranslationTask['scope']): TranslationTask => ({
-  id: scope, kind: scope === 'subtitle' ? 'subtitle' : scope, scope,
+  id: scope, kind: scope === 'pdf' ? 'selection' : scope, scope,
   sourceLanguage: 'auto', targetLanguage: 'zh-CN', units: [{ id: 'one', text: 'Hello' }],
 });
 

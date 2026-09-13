@@ -13,6 +13,9 @@ export const DEFAULT_TASK_ROUTES: TaskRoutes = {
   selectionExplanation: { profileId: 'deepseek-chat', reasoningMode: 'balanced', glossaryMode: 'hybrid' },
   videoContext: { profileId: 'deepseek-chat', reasoningMode: 'fast', glossaryMode: 'matched' },
   subtitleTranslation: { profileId: 'deepseek-chat', reasoningMode: 'fast', glossaryMode: 'hybrid' },
+  pdfContext: { profileId: 'deepseek-chat', reasoningMode: 'balanced', glossaryMode: 'matched' },
+  pdfTranslation: { profileId: 'deepseek-chat', reasoningMode: 'balanced', glossaryMode: 'matched' },
+  pdfExplanation: { profileId: 'deepseek-chat', reasoningMode: 'balanced', glossaryMode: 'matched' },
   transcription: { profileId: '', reasoningMode: 'compatible', glossaryMode: 'matched' },
 };
 
@@ -34,7 +37,7 @@ export const DEFAULT_SETTINGS: WeaveSettings = {
     label: 'DeepSeek V4.1 Flash',
     connectionId: 'deepseek',
     model: 'deepseek-flash',
-    capabilities: ['chat', 'tools', 'reasoningEffort'],
+    capabilities: ['chat', 'tools', 'reasoningEffort', 'vision'],
     enabled: true,
   }],
   taskRoutes: DEFAULT_TASK_ROUTES,
@@ -54,4 +57,5 @@ export const DEFAULT_SETTINGS: WeaveSettings = {
     asrLanguage: 'auto',
   },
   siteRules: {},
+  pdf: { visionMode: 'auto', contextBudget: 8000, theme: 'auto', cachePersistence: 'session', cacheDays: 7, cacheMaxMb: 64 },
 };

@@ -1,6 +1,7 @@
 import type {
   DockState,
   ProviderProfile,
+  PdfSettings,
   SecretPersistence,
   SiteRule,
   TaskRouteKey,
@@ -24,10 +25,23 @@ const FORMER_LOCAL_ASR_MODELS = new Set([
 type LegacySettings = Partial<WeaveSettings> & { provider?: Partial<ProviderProfile> };
 type SecretMap = Record<string, string>;
 
+function pdfSettings(raw?: Partial<PdfSettings>): PdfSettings {
+  const base = DEFAULT_SETTINGS.pdf;
+  return {
+    visionMode: raw?.visionMode && ['auto', 'text', 'image'].includes(raw.visionMode) ? raw.visionMode : base.visionMode,
+    theme: raw?.theme && ['auto', 'light', 'dark'].includes(raw.theme) ? raw.theme : base.theme,
+    contextBudget: raw?.contextBudget === 16000 ? 16000 : 8000,
+    cachePersistence: raw?.cachePersistence === 'disk' ? 'disk' : 'session',
+    cacheDays: raw?.cacheDays && [1, 7, 30].includes(raw.cacheDays) ? raw.cacheDays : base.cacheDays,
+    cacheMaxMb: raw?.cacheMaxMb && [32, 64, 128].includes(raw.cacheMaxMb) ? raw.cacheMaxMb : base.cacheMaxMb,
+  };
+}
+
 function cloneRoutes(raw?: Partial<TaskRoutes>): TaskRoutes {
   const result = {} as TaskRoutes;
   for (const key of Object.keys(DEFAULT_TASK_ROUTES) as TaskRouteKey[]) {
-    result[key] = { ...DEFAULT_TASK_ROUTES[key], ...raw?.[key] };
+    const inherited = key === 'pdfContext' ? raw?.pageContext : key === 'pdfTranslation' ? raw?.selectionTranslation : key === 'pdfExplanation' ? raw?.selectionExplanation : undefined;
+    result[key] = { ...DEFAULT_TASK_ROUTES[key], ...inherited, ...raw?.[key] };
   }
   return result;
 }
@@ -72,11 +86,14 @@ function migrateLegacy(raw: LegacySettings): WeaveSettings {
       connectionId,
       label: legacy?.label ? `${legacy.label} Chat` : DEFAULT_SETTINGS.models[0]!.label,
       model: legacy?.model ?? DEFAULT_SETTINGS.models[0]!.model,
+      capabilities: legacy && (legacy.model !== 'deepseek-flash' || !/^https:\/\/api\.deepseek\.com\//.test(legacy.endpoint ?? ''))
+        ? ['chat', 'tools', 'reasoningEffort'] : [...DEFAULT_SETTINGS.models[0]!.capabilities],
     }],
     taskRoutes,
     reasoning,
     dock: { ...DEFAULT_SETTINGS.dock, ...raw.dock },
     video: { ...DEFAULT_SETTINGS.video, ...raw.video },
+    pdf: pdfSettings(raw.pdf),
     siteRules: { ...DEFAULT_SETTINGS.siteRules, ...raw.siteRules },
   };
 }
@@ -94,11 +111,16 @@ export function mergeSettings(raw?: LegacySettings): WeaveSettings {
       ...connection,
       hasApiKey: false,
     })),
-    models: raw.models.map((model) => ({ ...model, capabilities: [...model.capabilities] })),
+    models: raw.models.map((model) => {
+      const connection = raw.connections?.find((entry) => entry.id === model.connectionId);
+      const enableVision = !raw.pdf && model.model === 'deepseek-flash' && /^https:\/\/api\.deepseek\.com\//.test(connection?.chatEndpoint ?? '');
+      return { ...model, capabilities: [...model.capabilities, ...(enableVision && !model.capabilities.includes('vision') ? ['vision' as const] : [])] };
+    }),
     taskRoutes: cloneRoutes(raw.taskRoutes),
     reasoning: { ...DEFAULT_SETTINGS.reasoning, ...raw.reasoning },
     dock: { ...DEFAULT_SETTINGS.dock, ...raw.dock },
     video: { ...DEFAULT_SETTINGS.video, ...raw.video },
+    pdf: pdfSettings(raw.pdf),
     siteRules: { ...DEFAULT_SETTINGS.siteRules, ...raw.siteRules },
   };
 }
@@ -139,6 +161,7 @@ export function migrateDeepSeekFlash(settings: WeaveSettings): { settings: Weave
       ...model,
       model: 'deepseek-flash',
       label: model.label === 'DeepSeek Chat' ? 'DeepSeek V4.1 Flash' : model.label,
+      capabilities: model.capabilities.includes('vision') ? model.capabilities : [...model.capabilities, 'vision' as const],
     };
   });
   return changed ? { settings: { ...settings, models }, changed } : { settings, changed };
@@ -169,7 +192,7 @@ async function ensureV2Settings(): Promise<WeaveSettings> {
   if (current?.schemaVersion === 2) {
     const asrMigration = migrateLocalAsrToQwen(mergeSettings(current));
     const migrated = migrateDeepSeekFlash(asrMigration.settings);
-    if (asrMigration.changed || migrated.changed) {
+    if (asrMigration.changed || migrated.changed || !current.pdf) {
       await browser.storage.local.set({ [SETTINGS_V2_KEY]: storedSettings(migrated.settings) });
     }
     return migrated.settings;
