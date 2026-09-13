@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mergeSettings, migrateLocalAsrToQwen } from '../src/background/storage';
+import { mergeSettings, migrateDeepSeekFlash, migrateLocalAsrToQwen } from '../src/background/storage';
 
 describe('settings migration', () => {
   it('copies the old global reasoning mode into every scene', () => {
@@ -21,6 +21,40 @@ describe('settings migration', () => {
     expect(settings.models[0]).toMatchObject({ id: 'legacy-chat', connectionId: 'legacy', model: 'legacy-model' });
     expect(settings.taskRoutes.pageTranslation.profileId).toBe('legacy-chat');
     expect(settings.taskRoutes.transcription.profileId).toBe('');
+  });
+});
+
+describe('DeepSeek V4.1 Flash migration', () => {
+  it('upgrades official Flash aliases without changing route IDs or custom names', () => {
+    const base = mergeSettings();
+    const settings = {
+      ...base,
+      models: [
+        { ...base.models[0]!, label: 'DeepSeek Chat', model: 'deepseek-v4-flash' },
+        { ...base.models[0]!, id: 'research', label: '论文模型', model: 'deepseek-v4-flash-vision-exp', enabled: false },
+      ],
+    };
+    const migrated = migrateDeepSeekFlash(settings);
+    expect(migrated.changed).toBe(true);
+    expect(migrated.settings.models[0]).toMatchObject({ id: 'deepseek-chat', label: 'DeepSeek V4.1 Flash', model: 'deepseek-flash' });
+    expect(migrated.settings.models[1]).toMatchObject({ id: 'research', label: '论文模型', model: 'deepseek-flash', enabled: false });
+    expect(migrated.settings.connections).toEqual(settings.connections);
+    expect(migrated.settings.taskRoutes).toEqual(settings.taskRoutes);
+    expect(settings.models[0]?.model).toBe('deepseek-v4-flash');
+    expect(migrateDeepSeekFlash(migrated.settings)).toEqual({ settings: migrated.settings, changed: false });
+  });
+
+  it('leaves third-party endpoints, Pro and custom models untouched', () => {
+    const base = mergeSettings();
+    for (const endpoint of ['https://proxy.example/v1/chat/completions', 'https://api.deepseek.com.evil.example/chat/completions', 'invalid']) {
+      const settings = { ...base, connections: [{ ...base.connections[0]!, chatEndpoint: endpoint }],
+        models: [{ ...base.models[0]!, model: 'deepseek-v4-flash' }] };
+      expect(migrateDeepSeekFlash(settings)).toEqual({ settings, changed: false });
+    }
+    for (const model of ['deepseek-v4-pro', 'custom-model', 'deepseek-flash']) {
+      const settings = { ...base, models: [{ ...base.models[0]!, model }] };
+      expect(migrateDeepSeekFlash(settings)).toEqual({ settings, changed: false });
+    }
   });
 });
 

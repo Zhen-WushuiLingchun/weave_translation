@@ -122,6 +122,28 @@ export function migrateLocalAsrToQwen(settings: WeaveSettings): { settings: Weav
   return changed ? { settings: { ...settings, models }, changed } : { settings, changed };
 }
 
+export function migrateDeepSeekFlash(settings: WeaveSettings): { settings: WeaveSettings; changed: boolean } {
+  const officialConnections = new Set(settings.connections.filter((connection) => {
+    try {
+      return new URL(connection.chatEndpoint).origin === 'https://api.deepseek.com';
+    } catch {
+      return false;
+    }
+  }).map((connection) => connection.id));
+  let changed = false;
+  const models = settings.models.map((model) => {
+    if (!officialConnections.has(model.connectionId) || !model.capabilities.includes('chat')
+      || !['deepseek-v4-flash', 'deepseek-v4-flash-vision-exp'].includes(model.model)) return model;
+    changed = true;
+    return {
+      ...model,
+      model: 'deepseek-flash',
+      label: model.label === 'DeepSeek Chat' ? 'DeepSeek V4.1 Flash' : model.label,
+    };
+  });
+  return changed ? { settings: { ...settings, models }, changed } : { settings, changed };
+}
+
 function storedSettings(settings: WeaveSettings): WeaveSettings {
   return {
     ...settings,
@@ -145,15 +167,16 @@ async function ensureV2Settings(): Promise<WeaveSettings> {
   const values = await browser.storage.local.get([SETTINGS_V2_KEY, SETTINGS_V1_KEY, LEGACY_LOCAL_KEY]);
   const current = values[SETTINGS_V2_KEY] as LegacySettings | undefined;
   if (current?.schemaVersion === 2) {
-    const migrated = migrateLocalAsrToQwen(mergeSettings(current));
-    if (migrated.changed) {
+    const asrMigration = migrateLocalAsrToQwen(mergeSettings(current));
+    const migrated = migrateDeepSeekFlash(asrMigration.settings);
+    if (asrMigration.changed || migrated.changed) {
       await browser.storage.local.set({ [SETTINGS_V2_KEY]: storedSettings(migrated.settings) });
     }
     return migrated.settings;
   }
 
   const legacy = values[SETTINGS_V1_KEY] as LegacySettings | undefined;
-  const migrated = mergeSettings(legacy);
+  const migrated = migrateDeepSeekFlash(mergeSettings(legacy)).settings;
   const legacySession = String((await browser.storage.session.get(LEGACY_SESSION_KEY))[LEGACY_SESSION_KEY] ?? '');
   const legacyLocal = String(values[LEGACY_LOCAL_KEY] ?? '');
   const connection = migrated.connections[0]!;

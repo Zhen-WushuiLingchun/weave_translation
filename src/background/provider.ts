@@ -29,6 +29,7 @@ interface ToolCall {
 interface CompletionMessage {
   role?: string;
   content?: string | null;
+  reasoning_content?: string | null;
   tool_calls?: ToolCall[];
   tool_call_id?: string;
 }
@@ -278,7 +279,12 @@ export async function callProvider(
     const matches = queries.length ? await options.glossaryLookup(queries) : [];
     const secondMessages: CompletionMessage[] = [
       ...messages,
-      { role: 'assistant', content: message?.content ?? null, tool_calls: [toolCall] },
+      {
+        role: 'assistant', content: message?.content ?? null, tool_calls: [toolCall],
+        // DeepSeek requires its reasoning payload on the tool continuation, even when content is empty.
+        ...(profile.kind === 'deepseek' && typeof message?.reasoning_content === 'string'
+          ? { reasoning_content: message.reasoning_content } : {}),
+      },
       { role: 'tool', content: JSON.stringify({ matches }), tool_call_id: toolCall.id },
     ];
     const secondResponse = await postWithRetry(endpoint, headers, { ...baseBody, stream: false, messages: secondMessages, tools: toolDefinition(), tool_choice: 'none' }, fetcher);

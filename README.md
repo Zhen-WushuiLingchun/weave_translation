@@ -138,6 +138,12 @@ pnpm zip
 4. 在“任务路由”中为网页、划词、解释、字幕和 ASR 分配模型与思考强度。
 5. 打开任意普通网页，点击页面边缘的“织”字把手开始使用。
 
+DeepSeek 默认预设为 **V4.1 Flash**，模型标识是 `deepseek-flash`，接口地址仍为
+`https://api.deepseek.com/chat/completions`。升级后，使用官方接口的旧 Flash / Flash Vision Exp
+配置会自动改用新标识，并保留密钥引用、任务路由、自定义名称和思考强度；第三方接口和 Pro
+模型保持原配置。具体模型更新见 [DeepSeek 官方更新日志](https://api-docs.deepseek.com/zh-cn/updates/)。
+当前织语的翻译请求仍使用文本；模型具备视觉能力不代表扩展已支持 PDF 或图片输入。
+
 无字幕视频需要额外配置完整的 `/audio/transcriptions` 地址和具备 `audioTranscription` 能力的模型。仓库提供可选的 Windows 本地服务安装脚本，默认使用支持中英文、上下文提示和时间戳的 Qwen3-ASR-1.7B，同时保留 NVIDIA Whisper、Intel 核显和 CPU 后端；安装位置、端口及默认设备均可配置。希望减少独显占用时，可将 `DefaultModel` 设为 `openvino-whisper-base-int8-gpu`，详见 [本地 ASR 配置](docs/local-asr.md)。
 
 默认源语言为自动识别，目标语言为简体中文；目标语言可改为繁体中文、英语、日语或韩语。

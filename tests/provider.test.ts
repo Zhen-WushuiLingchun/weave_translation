@@ -130,4 +130,28 @@ describe('provider client', () => {
     expect(lookup).toHaveBeenCalledWith(['event horizon']);
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
+
+  it('preserves DeepSeek reasoning on a glossary continuation without exposing it in translation results', async () => {
+    const reasoning = 'Need to consult the local terminology before translating.';
+    const fetcher = vi.fn<typeof fetch>(async (_url, init) => {
+      const body = JSON.parse(String(init?.body)) as { model: string; thinking: { type: string }; messages: Array<Record<string, unknown>> };
+      expect(body.model).toBe('deepseek-flash');
+      expect(body.thinking).toEqual({ type: 'enabled' });
+      if (fetcher.mock.calls.length === 1) {
+        return new Response(JSON.stringify({ choices: [{ message: {
+          content: null, reasoning_content: reasoning,
+          tool_calls: [{ id: 'lookup-1', type: 'function', function: { name: 'lookup_glossary', arguments: '{"queries":["event horizon"]}' } }],
+        } }] }), { status: 200 });
+      }
+      expect(body.messages.at(-2)).toMatchObject({ role: 'assistant', content: null, reasoning_content: reasoning });
+      expect(body.messages.at(-1)).toMatchObject({ role: 'tool', tool_call_id: 'lookup-1' });
+      return new Response(JSON.stringify({ choices: [{ message: { content: '{"items":[{"id":"a","text":"你好"},{"id":"b","text":"世界"}]}' } }] }), { status: 200 });
+    });
+    const result = await callProvider({ ...profile, kind: 'deepseek', model: 'deepseek-flash', reasoningMode: 'balanced',
+      capabilities: ['chat', 'tools', 'reasoningEffort'], glossaryMode: 'hybrid' }, '', task, fetcher,
+    { glossaryLookup: async () => [] });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(result.items[0]?.text).toBe('你好');
+    expect(JSON.stringify(result)).not.toContain(reasoning);
+  });
 });

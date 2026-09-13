@@ -31,9 +31,9 @@ export const DEFAULT_SETTINGS: WeaveSettings = {
   }],
   models: [{
     id: 'deepseek-chat',
-    label: 'DeepSeek Chat',
+    label: 'DeepSeek V4.1 Flash',
     connectionId: 'deepseek',
-    model: 'deepseek-v4-flash',
+    model: 'deepseek-flash',
     capabilities: ['chat', 'tools', 'reasoningEffort'],
     enabled: true,
   }],
